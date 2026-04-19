@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Prompt Glass",
+  "version": "0.1.0",
+  "description": "Analyze webpage images, generate editable prompts, translate them, and send them to Gemini image generation.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "<all_urls>",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Prompt Glass"
+  }
+}

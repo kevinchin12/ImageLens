@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt Glass 设置</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero glass">
+        <div>
+          <p class="eyebrow">Prompt Glass</p>
+          <h1>网页图片转提示词 Chrome 插件</h1>
+          <p class="subtitle">
+            默认通过 Gemini 分析图片与生图。密钥不写入仓库，由用户在本地设置；上线时建议切到代理模式，避免直接暴露 API key。
+          </p>
+        </div>
+        <div class="hero-note">
+          <span>Liquid Glass UI</span>
+          <span>Manifest V3</span>
+          <span>Gemini First</span>
+        </div>
+      </section>
+
+      <section class="grid">
+        <form id="settings-form" class="glass card">
+          <div class="section-head">
+            <h2>Provider 设置</h2>
+            <p>现在先接 Gemini，结构上已预留未来兼容其他模型或自建代理。</p>
+          </div>
+
+          <label class="field">
+            <span>运行模式</span>
+            <select name="apiMode">
+              <option value="direct">Direct 直连 Gemini</option>
+              <option value="proxy">Proxy 走你自己的后端</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Provider</span>
+            <select name="provider">
+              <option value="gemini">Gemini</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Gemini API Key</span>
+            <input name="geminiApiKey" type="password" placeholder="AIza..." autocomplete="off" />
+            <small>只保存在本地 `chrome.storage.local`，不会写入代码仓库。</small>
+          </label>
+
+          <label class="field">
+            <span>Gemini 文本模型</span>
+            <input name="geminiTextModel" type="text" placeholder="gemini-2.5-flash" />
+          </label>
+
+          <label class="field">
+            <span>Gemini 生图模型</span>
+            <input name="geminiImageModel" type="text" placeholder="imagen-4.0-generate-001" />
+            <small>官方文档显示 Imagen 4 可通过 `:predict` 调用；不同账号和地区可用性可能不同。</small>
+          </label>
+
+          <label class="field">
+            <span>代理地址</span>
+            <input name="customProxyUrl" type="url" placeholder="https://your-api.example.com/" />
+          </label>
+
+          <label class="field">
+            <span>代理 Token</span>
+            <input name="customProxyToken" type="password" placeholder="可选" autocomplete="off" />
+          </label>
+
+          <div class="actions">
+            <button class="primary" type="submit">保存设置</button>
+            <button id="open-doc" type="button">打开官方文档</button>
+          </div>
+        </form>
+
+        <section class="glass card">
+          <div class="section-head">
+            <h2>体验设置</h2>
+            <p>控制悬浮按钮、默认语言和生图参数。</p>
+          </div>
+
+          <div class="field-group">
+            <label class="field">
+              <span>默认展示语言</span>
+              <select name="defaultLanguage" form="settings-form">
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+
+            <label class="field toggle">
+              <span>打开面板后自动识别</span>
+              <input name="autoAnalyze" form="settings-form" type="checkbox" />
+            </label>
+
+            <label class="field">
+              <span>默认长宽比</span>
+              <select name="aspectRatio" form="settings-form">
+                <option value="1:1">1:1</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="4:3">4:3</option>
+                <option value="3:4">3:4</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>默认出图张数</span>
+              <select name="imageCount" form="settings-form">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="tips">
+            <h3>安全建议</h3>
+            <ul>
+              <li>开源分享到 GitHub 时，不要把 API key 写进代码或 `manifest`。</li>
+              <li>如果要给别人直接安装使用，建议改成你自己的后端代理，前端只拿短期凭证。</li>
+              <li>如果后续兼容其他模型，优先继续走统一 provider 接口，不要把调用逻辑塞进 content script。</li>
+            </ul>
+          </div>
+
+          <p id="status" class="status">读取设置中...</p>
+        </section>
+      </section>
+    </main>
+
+    <script src="./options.js"></script>
+  </body>
+</html>
