@@ -202,6 +202,10 @@
   flex-wrap: wrap;
 }
 
+.pg-actions-fixed {
+  gap: 12px;
+}
+
 .pg-action {
   min-height: 40px;
   padding: 0 14px;
@@ -215,11 +219,21 @@
   gap: 8px;
 }
 
+.pg-fixed-control-wrap {
+  width: 128px;
+}
+
 .pg-select {
   min-height: 42px;
   padding: 0 14px;
   border-radius: 16px;
   outline: none;
+}
+
+.pg-fixed-control {
+  width: 128px;
+  justify-content: center;
+  text-align: center;
 }
 
 .pg-action.is-busy,
@@ -345,5 +359,10 @@
   .pg-section-head {
     align-items: start;
     flex-direction: column;
+  }
+
+  .pg-fixed-control-wrap,
+  .pg-fixed-control {
+    width: 100%;
   }
 }

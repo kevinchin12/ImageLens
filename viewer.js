@@ -4,12 +4,14 @@ const copyPromptButton = document.getElementById("copy-prompt");
 const downloadImagesButton = document.getElementById("download-images");
 
 let currentPayload = null;
+const VIEWER_DB_NAME = "prompt-glass-db";
+const VIEWER_STORE_NAME = "viewer_payloads";
+const VIEWER_RECORD_ID = "current";
 
 init();
 
 async function init() {
-  const stored = await chrome.storage.local.get("viewer:current");
-  const payload = stored["viewer:current"];
+  const payload = await readViewerPayload();
 
   if (!payload) {
     promptEl.textContent = "结果不存在，可能已过期。";
@@ -64,4 +66,31 @@ function triggerDownload(src, filename) {
   document.body.append(link);
   link.click();
   link.remove();
+}
+
+async function readViewerPayload() {
+  const db = await openViewerDb();
+  const payload = await new Promise((resolve, reject) => {
+    const tx = db.transaction(VIEWER_STORE_NAME, "readonly");
+    const store = tx.objectStore(VIEWER_STORE_NAME);
+    const request = store.get(VIEWER_RECORD_ID);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error("Failed to read viewer payload."));
+  });
+  db.close();
+  return payload;
+}
+
+function openViewerDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(VIEWER_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(VIEWER_STORE_NAME)) {
+        db.createObjectStore(VIEWER_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Failed to open viewer database."));
+  });
 }

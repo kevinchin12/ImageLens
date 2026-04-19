@@ -42,8 +42,8 @@ panel.innerHTML = `
       <div class="pg-section-head">
         <strong>提示词</strong>
         <div class="pg-chip-group">
-          <button class="pg-chip" id="pg-detail-short" type="button">精简灵感版</button>
-          <button class="pg-chip is-active" id="pg-detail-full" type="button">完整细化版</button>
+          <button class="pg-chip is-active" id="pg-detail-short" type="button">精简版</button>
+          <button class="pg-chip" id="pg-detail-full" type="button">完整版</button>
         </div>
       </div>
 
@@ -54,24 +54,24 @@ panel.innerHTML = `
         <span id="pg-char-count">0 字</span>
       </div>
 
-      <div class="pg-actions">
-        <button class="pg-action" id="pg-analyze" type="button">重新识别</button>
-        <button class="pg-action" id="pg-copy" type="button">复制提示词</button>
+      <div class="pg-actions pg-actions-fixed">
+        <button class="pg-action pg-fixed-control" id="pg-copy" type="button">复制提示词</button>
+        <button class="pg-action pg-fixed-control" id="pg-analyze" type="button">重新识别</button>
       </div>
     </section>
 
     <section class="pg-section">
       <div class="pg-section-head">
-        <strong>生图</strong>
+        <strong>立刻生图</strong>
       </div>
 
-      <label class="pg-select-wrap">
+      <label class="pg-select-wrap pg-fixed-control-wrap">
         <span>图片比例</span>
-        <select class="pg-select" id="pg-ratio-select"></select>
+        <select class="pg-select pg-fixed-control" id="pg-ratio-select"></select>
       </label>
 
-      <div class="pg-actions">
-        <button class="pg-action primary" id="pg-generate" type="button">立刻生图</button>
+      <div class="pg-actions pg-actions-fixed">
+        <button class="pg-action primary pg-fixed-control" id="pg-generate" type="button">立刻生图</button>
       </div>
 
       <div class="pg-inline-preview" id="pg-inline-preview">
@@ -106,7 +106,7 @@ init();
 async function init() {
   const response = await sendMessage({ type: "get-settings" });
   state.settings = response;
-  state.panelData.detail = "full";
+  state.panelData.detail = "short";
   state.panelData.aspectRatio = state.settings.aspectRatio || "1:1";
   renderRatioSelect();
   bindEvents();
@@ -116,7 +116,7 @@ async function init() {
 function createEmptyPanelData() {
   return {
     title: "",
-    detail: "full",
+    detail: "short",
     aspectRatio: "1:1",
     prompts: {
       short: "",
@@ -235,7 +235,7 @@ function updateHoverButtonPosition() {
 
   hoverTrigger.style.display = "flex";
   hoverTrigger.style.top = `${Math.max(10, rect.top + 8)}px`;
-  hoverTrigger.style.left = `${Math.max(10, rect.right - 42)}px`;
+  hoverTrigger.style.left = `${Math.max(10, rect.left + 8)}px`;
 }
 
 function hideHoverButton() {
@@ -262,7 +262,7 @@ async function openPanelForImage(image) {
   }
 
   state.panelData = createEmptyPanelData();
-  state.panelData.detail = "full";
+  state.panelData.detail = "short";
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
   renderRatioSelect();
   syncPromptControls();
@@ -322,7 +322,7 @@ function switchDetail(detail) {
 function hydratePanelData(data) {
   state.panelData = {
     title: data.title || "图片提示词",
-    detail: data.detail || "full",
+    detail: data.detail || "short",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     prompts: {
       short: data.prompts?.short || "",

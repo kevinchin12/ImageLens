@@ -12,6 +12,10 @@ const DEFAULT_SETTINGS = {
   imageCount: 1
 };
 
+const VIEWER_DB_NAME = "prompt-glass-db";
+const VIEWER_STORE_NAME = "viewer_payloads";
+const VIEWER_RECORD_ID = "current";
+
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
   const missing = Object.fromEntries(
@@ -399,12 +403,11 @@ function extractImagesFromImagen(data) {
 }
 
 async function saveViewerImages(images, prompt) {
-  await chrome.storage.local.set({
-    "viewer:current": {
-      createdAt: Date.now(),
-      prompt,
-      images
-    }
+  await writeViewerPayload({
+    id: VIEWER_RECORD_ID,
+    createdAt: Date.now(),
+    prompt,
+    images
   });
 
   return {
@@ -430,4 +433,30 @@ function ensureTrailingSlash(url) {
 
 function clampImageCount(count) {
   return Math.min(4, Math.max(1, Number(count) || 1));
+}
+
+async function writeViewerPayload(payload) {
+  const db = await openViewerDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(VIEWER_STORE_NAME, "readwrite");
+    const store = tx.objectStore(VIEWER_STORE_NAME);
+    const request = store.put(payload);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error("Failed to write viewer payload."));
+  });
+  db.close();
+}
+
+function openViewerDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(VIEWER_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(VIEWER_STORE_NAME)) {
+        db.createObjectStore(VIEWER_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Failed to open viewer database."));
+  });
 }
