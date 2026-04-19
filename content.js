@@ -1,18 +1,17 @@
 const imageCache = new Map();
+const RATIO_OPTIONS = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 
 const state = {
   settings: null,
   hoverImage: null,
   panelImage: null,
-  panelData: {
-    zhPrompt: "",
-    enPrompt: "",
-    negativePrompt: "",
-    title: "",
-    language: "zh"
-  },
   panelOpen: false,
-  busy: false
+  currentJob: null,
+  panelData: createEmptyPanelData(),
+  actionState: {
+    analyze: false,
+    generate: false
+  }
 };
 
 const hoverTrigger = document.createElement("button");
@@ -27,10 +26,10 @@ panel.innerHTML = `
     <div class="pg-header">
       <div class="pg-title">
         <strong>Prompt Glass</strong>
-        <span id="pg-panel-subtitle">分析网页图片，生成可编辑提示词</span>
       </div>
       <button class="pg-close" id="pg-close" type="button">关闭</button>
     </div>
+
     <div class="pg-row">
       <div class="pg-preview"><img id="pg-preview-image" alt="selected image preview" /></div>
       <div class="pg-title">
@@ -38,23 +37,47 @@ panel.innerHTML = `
         <span id="pg-image-url">等待选择图片</span>
       </div>
     </div>
-    <div class="pg-editor">
-      <div class="pg-row">
-        <button class="pg-chip is-active" id="pg-lang-zh" type="button">中文</button>
-        <button class="pg-chip" id="pg-lang-en" type="button">English</button>
-        <span class="pg-hint" id="pg-language-hint">当前展示中文提示词</span>
+
+    <section class="pg-section pg-section-prompt">
+      <div class="pg-section-head">
+        <strong>提示词</strong>
+        <div class="pg-chip-group">
+          <button class="pg-chip" id="pg-detail-short" type="button">精简灵感版</button>
+          <button class="pg-chip is-active" id="pg-detail-full" type="button">完整细化版</button>
+        </div>
       </div>
+
       <textarea class="pg-textarea" id="pg-prompt-input" placeholder="这里会显示识别后的提示词，你可以直接修改。"></textarea>
+
       <div class="pg-meta">
         <span id="pg-status">就绪</span>
         <span id="pg-char-count">0 字</span>
       </div>
-    </div>
-    <div class="pg-actions">
-      <button class="pg-action" id="pg-analyze" type="button">重新识别</button>
-      <button class="pg-action" id="pg-copy" type="button">复制提示词</button>
-      <button class="pg-action primary" id="pg-generate" type="button">立刻生图</button>
-    </div>
+
+      <div class="pg-actions">
+        <button class="pg-action" id="pg-analyze" type="button">重新识别</button>
+        <button class="pg-action" id="pg-copy" type="button">复制提示词</button>
+      </div>
+    </section>
+
+    <section class="pg-section">
+      <div class="pg-section-head">
+        <strong>生图</strong>
+      </div>
+
+      <label class="pg-select-wrap">
+        <span>图片比例</span>
+        <select class="pg-select" id="pg-ratio-select"></select>
+      </label>
+
+      <div class="pg-actions">
+        <button class="pg-action primary" id="pg-generate" type="button">立刻生图</button>
+      </div>
+
+      <div class="pg-inline-preview" id="pg-inline-preview">
+        <div class="pg-inline-stack" id="pg-inline-grid"></div>
+      </div>
+    </section>
   </div>
 `;
 
@@ -64,17 +87,18 @@ const els = {
   previewImage: panel.querySelector("#pg-preview-image"),
   imageTitle: panel.querySelector("#pg-image-title"),
   imageUrl: panel.querySelector("#pg-image-url"),
-  subtitle: panel.querySelector("#pg-panel-subtitle"),
-  langZh: panel.querySelector("#pg-lang-zh"),
-  langEn: panel.querySelector("#pg-lang-en"),
-  languageHint: panel.querySelector("#pg-language-hint"),
   input: panel.querySelector("#pg-prompt-input"),
   status: panel.querySelector("#pg-status"),
   charCount: panel.querySelector("#pg-char-count"),
   analyze: panel.querySelector("#pg-analyze"),
   copy: panel.querySelector("#pg-copy"),
   generate: panel.querySelector("#pg-generate"),
-  close: panel.querySelector("#pg-close")
+  close: panel.querySelector("#pg-close"),
+  detailShort: panel.querySelector("#pg-detail-short"),
+  detailFull: panel.querySelector("#pg-detail-full"),
+  ratioSelect: panel.querySelector("#pg-ratio-select"),
+  inlinePreview: panel.querySelector("#pg-inline-preview"),
+  inlineGrid: panel.querySelector("#pg-inline-grid")
 };
 
 init();
@@ -82,8 +106,23 @@ init();
 async function init() {
   const response = await sendMessage({ type: "get-settings" });
   state.settings = response;
-  state.panelData.language = state.settings.defaultLanguage || "zh";
+  state.panelData.detail = "full";
+  state.panelData.aspectRatio = state.settings.aspectRatio || "1:1";
+  renderRatioSelect();
   bindEvents();
+  syncPromptControls();
+}
+
+function createEmptyPanelData() {
+  return {
+    title: "",
+    detail: "full",
+    aspectRatio: "1:1",
+    prompts: {
+      short: "",
+      full: ""
+    }
+  };
 }
 
 function bindEvents() {
@@ -101,63 +140,71 @@ function bindEvents() {
   els.close.addEventListener("click", closePanel);
 
   els.input.addEventListener("input", () => {
-    const key = getLanguageKey();
-    state.panelData[key] = els.input.value;
+    state.panelData.prompts[state.panelData.detail] = els.input.value;
     updateMeta();
     persistPanelImageCache();
   });
 
-  els.langZh.addEventListener("click", () => switchLanguage("zh"));
-  els.langEn.addEventListener("click", () => switchLanguage("en"));
-
+  els.detailShort.addEventListener("click", () => switchDetail("short"));
+  els.detailFull.addEventListener("click", () => switchDetail("full"));
   els.analyze.addEventListener("click", () => analyzeCurrentImage({ force: true }));
 
+  els.ratioSelect.addEventListener("change", () => {
+    state.panelData.aspectRatio = els.ratioSelect.value;
+    persistPanelImageCache();
+    setStatus(`生图比例已切换为 ${state.panelData.aspectRatio}`);
+  });
+
   els.copy.addEventListener("click", async () => {
-    const text = els.input.value.trim();
+    const text = getCurrentPrompt().trim();
     if (!text) {
-      setStatus("没有可复制的提示词。");
+      setStatus("没有可复制的提示词。", "error");
       return;
     }
     await navigator.clipboard.writeText(text);
-    setStatus("提示词已复制。");
+    setStatus("提示词已复制。", "success");
   });
 
-  els.generate.addEventListener("click", async () => {
-    const prompt = getPromptForGeneration();
-    if (!prompt) {
-      setStatus("请先识别或输入提示词。");
-      return;
-    }
+  els.generate.addEventListener("click", () => generateFromCurrentPrompt());
+  els.inlineGrid.addEventListener("click", handleInlinePreviewClick);
+}
 
-    await runBusyTask("正在生图...", async () => {
-      await sendMessage({
-        type: "generate-image",
-        payload: {
-          prompt,
-          aspectRatio: state.settings?.aspectRatio || "1:1",
-          count: state.settings?.imageCount || 1
-        }
-      });
-      setStatus("已打开结果页。");
+function renderRatioSelect() {
+  els.ratioSelect.innerHTML = RATIO_OPTIONS.map((ratio) => {
+    const selected = ratio === state.panelData.aspectRatio ? " selected" : "";
+    return `<option value="${ratio}"${selected}>${ratio}</option>`;
+  }).join("");
+}
+
+function handleInlinePreviewClick(event) {
+  const action = event.target.closest("[data-role]");
+  if (!action) return;
+
+  const role = action.dataset.role;
+  const index = Number(action.dataset.index);
+  if (!Number.isFinite(index)) return;
+
+  const src = getImageDataUrl(index);
+  if (!src) return;
+
+  if (role === "download") {
+    triggerDownload(src, `prompt-glass-${index + 1}.png`);
+    return;
+  }
+
+  if (role === "viewer") {
+    sendMessage({ type: "open-viewer" }).catch((error) => {
+      setStatus(error.message || "打开新页面失败。", "error");
     });
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.panelOpen) {
-      closePanel();
-    }
-  });
+  }
 }
 
 function handlePointerMove(event) {
   if (state.panelOpen && panel.contains(event.target)) return;
 
   const image = event.target instanceof Element ? findEligibleImage(event.target) : null;
-
   if (!image) {
-    if (!hoverTrigger.matches(":hover")) {
-      hideHoverButton();
-    }
+    if (!hoverTrigger.matches(":hover")) hideHoverButton();
     return;
   }
 
@@ -170,11 +217,7 @@ function findEligibleImage(startNode) {
   if (!image) return null;
   const rect = image.getBoundingClientRect();
   const src = image.currentSrc || image.src;
-
-  if (!src || rect.width < 96 || rect.height < 96) {
-    return null;
-  }
-
+  if (!src || rect.width < 96 || rect.height < 96) return null;
   return image;
 }
 
@@ -209,7 +252,8 @@ async function openPanelForImage(image) {
   els.previewImage.src = imageUrl;
   els.imageTitle.textContent = image.alt?.trim() || "网页图片";
   els.imageUrl.textContent = truncateMiddle(imageUrl, 52);
-  els.subtitle.textContent = "识别结果可直接修改，再复制或立即生图";
+  state.currentJob = null;
+  renderInlineImages([]);
 
   const cached = imageCache.get(imageUrl);
   if (cached) {
@@ -217,11 +261,15 @@ async function openPanelForImage(image) {
     return;
   }
 
-  clearPanelData();
+  state.panelData = createEmptyPanelData();
+  state.panelData.detail = "full";
+  state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
+  renderRatioSelect();
+  syncPromptControls();
+  setStatus("等待识别...");
+
   if (state.settings?.autoAnalyze) {
     await analyzeCurrentImage({ force: false });
-  } else {
-    setStatus("已选中图片，点击“重新识别”开始分析。");
   }
 }
 
@@ -241,7 +289,7 @@ async function analyzeCurrentImage({ force }) {
     return;
   }
 
-  await runBusyTask("正在识别图片内容...", async () => {
+  await runAction("analyze", "正在识别图片内容...", async () => {
     const result = await sendMessage({
       type: "analyze-image",
       payload: {
@@ -252,11 +300,13 @@ async function analyzeCurrentImage({ force }) {
     });
 
     const cached = {
-      zhPrompt: result.zhPrompt || "",
-      enPrompt: result.enPrompt || "",
-      negativePrompt: result.negativePrompt || "",
       title: result.title || "图片提示词",
-      language: state.panelData.language || state.settings?.defaultLanguage || "zh"
+      detail: state.panelData.detail || "full",
+      aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
+      prompts: {
+        short: result.zhPromptShort || "",
+        full: result.zhPromptFull || ""
+      }
     };
 
     imageCache.set(imageUrl, cached);
@@ -264,87 +314,112 @@ async function analyzeCurrentImage({ force }) {
   });
 }
 
-async function switchLanguage(language) {
-  state.panelData.language = language;
-  const key = language === "en" ? "enPrompt" : "zhPrompt";
-
-  if (language === "en" && !state.panelData.enPrompt.trim() && state.panelData.zhPrompt.trim()) {
-    await runBusyTask("正在翻译为英文...", async () => {
-      const result = await sendMessage({
-        type: "translate-prompt",
-        payload: {
-          text: state.panelData.zhPrompt,
-          targetLanguage: "en"
-        }
-      });
-      state.panelData.enPrompt = result.translatedText || "";
-      persistPanelImageCache();
-    });
-  }
-
-  if (language === "zh" && !state.panelData.zhPrompt.trim() && state.panelData.enPrompt.trim()) {
-    await runBusyTask("正在翻译为中文...", async () => {
-      const result = await sendMessage({
-        type: "translate-prompt",
-        payload: {
-          text: state.panelData.enPrompt,
-          targetLanguage: "zh"
-        }
-      });
-      state.panelData.zhPrompt = result.translatedText || "";
-      persistPanelImageCache();
-    });
-  }
-
-  els.langZh.classList.toggle("is-active", language === "zh");
-  els.langEn.classList.toggle("is-active", language === "en");
-  els.languageHint.textContent = language === "zh" ? "当前展示中文提示词" : "Currently showing the English prompt";
-  els.input.value = state.panelData[key] || "";
-  updateMeta();
+function switchDetail(detail) {
+  state.panelData.detail = detail;
+  syncPromptControls();
 }
 
 function hydratePanelData(data) {
   state.panelData = {
-    zhPrompt: data.zhPrompt || "",
-    enPrompt: data.enPrompt || "",
-    negativePrompt: data.negativePrompt || "",
     title: data.title || "图片提示词",
-    language: data.language || state.settings?.defaultLanguage || "zh"
+    detail: data.detail || "full",
+    aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
+    prompts: {
+      short: data.prompts?.short || "",
+      full: data.prompts?.full || ""
+    }
   };
 
   els.imageTitle.textContent = state.panelData.title || "图片提示词";
-  switchLanguage(state.panelData.language);
-  setStatus("识别完成，可直接修改。");
+  renderRatioSelect();
+  syncPromptControls();
+  setStatus("识别完成，可直接编辑。", "success");
 }
 
-function clearPanelData() {
-  state.panelData = {
-    zhPrompt: "",
-    enPrompt: "",
-    negativePrompt: "",
-    title: "",
-    language: state.settings?.defaultLanguage || "zh"
-  };
-  els.input.value = "";
-  switchLanguage(state.panelData.language);
-  setStatus("等待识别...");
+function syncPromptControls() {
+  els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
+  els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
+  els.input.value = getCurrentPrompt();
+  updateMeta();
 }
 
-function getLanguageKey() {
-  return state.panelData.language === "en" ? "enPrompt" : "zhPrompt";
+function getCurrentPrompt() {
+  return state.panelData.prompts[state.panelData.detail] || "";
 }
 
-function getPromptForGeneration() {
-  const current = els.input.value.trim();
-  if (state.panelData.language === "en") return current;
-  return state.panelData.enPrompt.trim() || current;
+async function generateFromCurrentPrompt() {
+  const prompt = getCurrentPrompt().trim();
+  if (!prompt) {
+    setStatus("请先识别或输入提示词。", "error");
+    return;
+  }
+
+  await runAction("generate", "正在生图，结果会显示在当前弹窗...", async () => {
+    const result = await sendMessage({
+      type: "generate-image",
+      payload: {
+        prompt,
+        aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
+        count: state.settings?.imageCount || 1,
+        openViewer: false
+      }
+    });
+
+    state.currentJob = {
+      images: result.images || []
+    };
+
+    renderInlineImages(state.currentJob.images);
+    setStatus("生图完成，预览已更新。", "success");
+  });
 }
 
 function persistPanelImageCache() {
   if (!state.panelImage) return;
   const imageUrl = state.panelImage.currentSrc || state.panelImage.src;
   if (!imageUrl) return;
-  imageCache.set(imageUrl, { ...state.panelData });
+  imageCache.set(imageUrl, structuredClone(state.panelData));
+}
+
+function renderInlineImages(images) {
+  if (!images || images.length === 0) {
+    els.inlinePreview.classList.remove("is-visible");
+    els.inlineGrid.innerHTML = "";
+    return;
+  }
+
+  els.inlinePreview.classList.add("is-visible");
+  els.inlineGrid.innerHTML = images
+    .map((image, index) => {
+      const src = `data:${image.mimeType || "image/png"};base64,${image.base64Data}`;
+      return `
+        <article class="pg-preview-card">
+          <div class="pg-preview-frame">
+            <img src="${src}" alt="generated preview ${index + 1}" />
+            <div class="pg-preview-overlay">
+              <button class="pg-preview-action" data-role="download" data-index="${index}" type="button">下载图片</button>
+              <button class="pg-preview-action" data-role="viewer" data-index="${index}" type="button">新页面打开</button>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function getImageDataUrl(index) {
+  const image = state.currentJob?.images?.[index];
+  if (!image) return "";
+  return `data:${image.mimeType || "image/png"};base64,${image.base64Data}`;
+}
+
+function triggerDownload(src, filename) {
+  const link = document.createElement("a");
+  link.href = src;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 function updateMeta() {
@@ -352,26 +427,36 @@ function updateMeta() {
   els.charCount.textContent = `${text.length} 字`;
 }
 
-async function runBusyTask(statusText, task) {
-  if (state.busy) return;
+async function runAction(actionName, statusText, task) {
+  if (state.actionState[actionName]) return;
 
-  state.busy = true;
-  panel.classList.add("pg-loading");
-  setStatus(statusText);
+  state.actionState[actionName] = true;
+  syncActionState();
+  setStatus(statusText, "working");
 
   try {
     await task();
   } catch (error) {
-    setStatus(error.message || "发生错误，请稍后重试。");
+    setStatus(error.message || "发生错误，请稍后重试。", "error");
   } finally {
-    state.busy = false;
-    panel.classList.remove("pg-loading");
+    state.actionState[actionName] = false;
+    syncActionState();
     updateMeta();
   }
 }
 
-function setStatus(text) {
+function syncActionState() {
+  els.analyze.classList.toggle("is-busy", state.actionState.analyze);
+  els.generate.classList.toggle("is-busy", state.actionState.generate);
+}
+
+function setStatus(text, tone = "") {
   els.status.textContent = text;
+  if (tone) {
+    els.status.dataset.tone = tone;
+  } else {
+    delete els.status.dataset.tone;
+  }
 }
 
 function truncateMiddle(text, maxLength) {

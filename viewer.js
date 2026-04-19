@@ -1,28 +1,43 @@
-const params = new URLSearchParams(location.search);
-const jobId = params.get("jobId");
 const promptEl = document.getElementById("prompt");
 const gallery = document.getElementById("gallery");
+const copyPromptButton = document.getElementById("copy-prompt");
+const downloadImagesButton = document.getElementById("download-images");
+
+let currentPayload = null;
 
 init();
 
 async function init() {
-  if (!jobId) {
-    promptEl.textContent = "缺少 jobId。";
-    return;
-  }
-
-  const storageKey = `viewer:${jobId}`;
-  const stored = await chrome.storage.local.get(storageKey);
-  const payload = stored[storageKey];
+  const stored = await chrome.storage.local.get("viewer:current");
+  const payload = stored["viewer:current"];
 
   if (!payload) {
     promptEl.textContent = "结果不存在，可能已过期。";
     return;
   }
 
+  currentPayload = payload;
   promptEl.textContent = payload.prompt || "未提供提示词";
   renderImages(payload.images || []);
 }
+
+copyPromptButton.addEventListener("click", async () => {
+  const prompt = currentPayload?.prompt || "";
+  if (!prompt) return;
+  await navigator.clipboard.writeText(prompt);
+  copyPromptButton.textContent = "已复制";
+  setTimeout(() => {
+    copyPromptButton.textContent = "复制提示词";
+  }, 1200);
+});
+
+downloadImagesButton.addEventListener("click", () => {
+  const images = currentPayload?.images || [];
+  images.forEach((image, index) => {
+    const src = `data:${image.mimeType || "image/png"};base64,${image.base64Data}`;
+    triggerDownload(src, `prompt-glass-${index + 1}.png`);
+  });
+});
 
 function renderImages(images) {
   if (images.length === 0) {
@@ -36,12 +51,17 @@ function renderImages(images) {
       return `
         <article class="glass card">
           <img src="${src}" alt="generated ${index + 1}" />
-          <div class="card-footer">
-            <span>结果 ${index + 1}</span>
-            <a download="prompt-glass-${index + 1}.png" href="${src}">下载</a>
-          </div>
         </article>
       `;
     })
     .join("");
+}
+
+function triggerDownload(src, filename) {
+  const link = document.createElement("a");
+  link.href = src;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
 }

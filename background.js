@@ -45,6 +45,8 @@ async function handleMessage(message) {
       return translatePrompt(message.payload || {});
     case "generate-image":
       return generateImage(message.payload || {});
+    case "open-viewer":
+      return openViewer(message.payload || {});
     default:
       throw new Error(`Unsupported message type: ${message.type}`);
   }
@@ -103,14 +105,13 @@ async function analyzeImage(payload) {
     "你是一个专业的图像提示词设计助手。",
     "请分析用户提供的图片，并输出适合文生图模型使用的中文提示词。",
     "要求输出 JSON，不要输出 Markdown。",
-    'JSON 格式: {"zhPrompt":"", "title":"", "keywords":[""], "negativePrompt":""}',
+    'JSON 格式: {"title":"", "zhPromptShort":"", "zhPromptFull":"", "keywords":[""]}',
     "规则：",
-    "1. zhPrompt 必须是完整、自然、可直接用于生图的中文提示词。",
-    "2. 重点描述主体、构图、镜头、光线、材质、色彩、风格、氛围和细节。",
+    "1. zhPromptShort 是精简版提示词，只保留核心视觉信息，用两到三句话完成。",
+    "2. zhPromptFull 是完整细化版提示词，重点描述主体、构图、镜头、光线、材质、色彩、风格、氛围和细节。",
     "3. 不要臆造商标、人物身份或受版权保护角色名；不确定时用通用描述。",
     "4. title 用 12 字以内概括主题。",
     "5. keywords 给 6 到 12 个中文短词。",
-    "6. negativePrompt 给出简洁的中文反向词，避免模糊、低清、畸形等问题。",
     `补充上下文：页面地址 ${payload.pageUrl || "unknown"}；图片 alt ${payload.alt || "none"}。`
   ].join("\n");
 
@@ -135,16 +136,15 @@ async function analyzeImage(payload) {
   const rawText = extractTextFromGemini(response);
   const parsed = parseLooseJson(rawText);
 
-  if (!parsed?.zhPrompt) {
+  if (!parsed?.zhPromptShort || !parsed?.zhPromptFull) {
     throw new Error("Model did not return a valid prompt.");
   }
 
   return {
     title: String(parsed.title || "图片提示词"),
-    zhPrompt: String(parsed.zhPrompt || "").trim(),
-    enPrompt: "",
+    zhPromptShort: String(parsed.zhPromptShort || "").trim(),
+    zhPromptFull: String(parsed.zhPromptFull || "").trim(),
     keywords: Array.isArray(parsed.keywords) ? parsed.keywords.map(String) : [],
-    negativePrompt: String(parsed.negativePrompt || "").trim(),
     sourceImageUrl: imageUrl
   };
 }
@@ -196,6 +196,7 @@ async function translatePrompt(payload) {
 async function generateImage(payload) {
   const settings = await getSettings();
   const prompt = String(payload.prompt || "").trim();
+  const shouldOpenViewer = Boolean(payload.openViewer);
 
   if (!prompt) {
     throw new Error("Missing prompt for generation.");
@@ -208,8 +209,11 @@ async function generateImage(payload) {
       count: payload.count || settings.imageCount || 1
     });
 
-    await openViewerWithImages(result.images || [], prompt);
-    return result;
+    const viewer = await saveViewerImages(result.images || [], prompt);
+    if (shouldOpenViewer) {
+      await openViewerTab();
+    }
+    return { ...result, ...viewer };
   }
 
   ensureDirectApiKey(settings);
@@ -241,13 +245,22 @@ async function generateImage(payload) {
     throw new Error("Image generation returned no images.");
   }
 
-  await openViewerWithImages(images, prompt);
+  const viewer = await saveViewerImages(images, prompt);
+  if (shouldOpenViewer) {
+    await openViewerTab();
+  }
 
   return {
     images,
     provider: settings.provider,
-    model: settings.geminiImageModel
+    model: settings.geminiImageModel,
+    ...viewer
   };
+}
+
+async function openViewer() {
+  await openViewerTab();
+  return { opened: true };
 }
 
 function ensureDirectApiKey(settings) {
@@ -385,27 +398,29 @@ function extractImagesFromImagen(data) {
     .filter(Boolean);
 }
 
-async function openViewerWithImages(images, prompt) {
-  const jobId = `job-${Date.now()}`;
+async function saveViewerImages(images, prompt) {
   await chrome.storage.local.set({
-    [`viewer:${jobId}`]: {
+    "viewer:current": {
       createdAt: Date.now(),
       prompt,
       images
     }
   });
 
+  return {
+    viewerUrl: chrome.runtime.getURL("viewer.html")
+  };
+}
+
+async function openViewerTab() {
   await chrome.tabs.create({
-    url: chrome.runtime.getURL(`viewer.html?jobId=${encodeURIComponent(jobId)}`)
+    url: chrome.runtime.getURL("viewer.html")
   });
 }
 
 function normalizeImageUrl(url) {
   const normalized = String(url || "").trim();
   if (!normalized) return "";
-  if (normalized.startsWith("data:")) {
-    throw new Error("Data URL images are not supported in the current version.");
-  }
   return normalized;
 }
 
