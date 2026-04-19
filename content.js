@@ -65,13 +65,14 @@ panel.innerHTML = `
         <strong>立刻生图</strong>
       </div>
 
-      <label class="pg-select-wrap pg-fixed-control-wrap">
-        <span>图片比例</span>
-        <select class="pg-select pg-fixed-control" id="pg-ratio-select"></select>
-      </label>
-
-      <div class="pg-actions pg-actions-fixed">
-        <button class="pg-action primary pg-fixed-control" id="pg-generate" type="button">立刻生图</button>
+      <div class="pg-generate-row">
+        <label class="pg-select-wrap pg-fixed-control-wrap">
+          <span>图片比例</span>
+          <select class="pg-select pg-fixed-control" id="pg-ratio-select"></select>
+        </label>
+        <div class="pg-actions pg-actions-fixed">
+          <button class="pg-action primary pg-fixed-control" id="pg-generate" type="button">立刻生图</button>
+        </div>
       </div>
 
       <div class="pg-inline-preview" id="pg-inline-preview">

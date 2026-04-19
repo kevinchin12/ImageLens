@@ -6,7 +6,6 @@ const DEFAULT_SETTINGS = {
   geminiImageModel: "imagen-4.0-generate-001",
   customProxyUrl: "",
   customProxyToken: "",
-  defaultLanguage: "zh",
   autoAnalyze: true,
   aspectRatio: "1:1",
   imageCount: 1
@@ -45,8 +44,6 @@ async function handleMessage(message) {
       return saveSettings(message.payload || {});
     case "analyze-image":
       return analyzeImage(message.payload || {});
-    case "translate-prompt":
-      return translatePrompt(message.payload || {});
     case "generate-image":
       return generateImage(message.payload || {});
     case "open-viewer":
@@ -150,50 +147,6 @@ async function analyzeImage(payload) {
     zhPromptFull: String(parsed.zhPromptFull || "").trim(),
     keywords: Array.isArray(parsed.keywords) ? parsed.keywords.map(String) : [],
     sourceImageUrl: imageUrl
-  };
-}
-
-async function translatePrompt(payload) {
-  const settings = await getSettings();
-  const sourceText = String(payload.text || "").trim();
-  const targetLanguage = payload.targetLanguage === "zh" ? "zh" : "en";
-
-  if (!sourceText) {
-    throw new Error("Missing source prompt.");
-  }
-
-  if (settings.apiMode === "proxy") {
-    return callProxy(settings, "/translate", {
-      text: sourceText,
-      targetLanguage
-    });
-  }
-
-  ensureDirectApiKey(settings);
-
-  const prompt = [
-    "You are a prompt translation assistant.",
-    `Translate the following prompt into ${targetLanguage === "en" ? "English" : "Chinese"}.`,
-    "Keep it optimized for text-to-image generation.",
-    "Preserve structure, descriptive richness, and visual intent.",
-    "Return JSON only.",
-    '{"translatedText":""}',
-    `Prompt: ${sourceText}`
-  ].join("\n");
-
-  const response = await callGeminiGenerateContent({
-    apiKey: settings.geminiApiKey,
-    model: settings.geminiTextModel,
-    contents: [{ parts: [{ text: prompt }] }]
-  });
-
-  const parsed = parseLooseJson(extractTextFromGemini(response));
-  if (!parsed?.translatedText) {
-    throw new Error("Translation failed.");
-  }
-
-  return {
-    translatedText: String(parsed.translatedText).trim()
   };
 }
 

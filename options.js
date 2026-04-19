@@ -26,7 +26,6 @@ form.addEventListener("submit", async (event) => {
     geminiImageModel: formData.get("geminiImageModel"),
     customProxyUrl: formData.get("customProxyUrl"),
     customProxyToken: formData.get("customProxyToken"),
-    defaultLanguage: formData.get("defaultLanguage"),
     aspectRatio: formData.get("aspectRatio"),
     imageCount: Number(formData.get("imageCount")),
     autoAnalyze: getField("autoAnalyze")?.checked || false

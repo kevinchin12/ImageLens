@@ -219,6 +219,13 @@
   gap: 8px;
 }
 
+.pg-generate-row {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .pg-fixed-control-wrap {
   width: 128px;
 }
@@ -364,5 +371,9 @@
   .pg-fixed-control-wrap,
   .pg-fixed-control {
     width: 100%;
+  }
+
+  .pg-generate-row {
+    align-items: stretch;
   }
 }
