@@ -103,7 +103,7 @@ async function analyzeImage(payload) {
 
   const imagePart = await fetchImageAsInlineData(imageUrl);
   const prompt = [
-    "你是一个专业的图像提示词设计助手。",
+    "你是一个专业的图像提示词设计助手，写的提示词要注重且优先还原图片的风格。",
     "请分析用户提供的图片，并输出适合文生图模型使用的中文提示词。",
     "要求输出 JSON，不要输出 Markdown。",
     'JSON 格式: {"title":"", "zhPromptShort":"", "zhPromptFull":"", "keywords":[""]}',
