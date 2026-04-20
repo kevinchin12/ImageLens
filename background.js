@@ -3,7 +3,7 @@ const DEFAULT_SETTINGS = {
   apiMode: "direct",
   geminiApiKey: "",
   geminiTextModel: "gemini-2.5-flash",
-  geminiImageModel: "imagen-4.0-generate-001",
+  geminiImageModel: "gemini-3.1-flash-image-preview",
   customProxyUrl: "",
   customProxyToken: "",
   autoAnalyze: true,
