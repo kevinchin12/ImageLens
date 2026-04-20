@@ -104,19 +104,7 @@ async function analyzeImage(payload) {
   ensureDirectApiKey(settings);
 
   const imagePart = await fetchImageAsInlineData(imageUrl);
-  const prompt = [
-    "你是一个专业的图像提示词设计助手，写的提示词要注重且优先还原图片的风格。",
-    "请分析用户提供的图片，并输出适合文生图模型使用的中文提示词。",
-    "要求输出 JSON，不要输出 Markdown。",
-    'JSON 格式: {"title":"", "zhPromptShort":"", "zhPromptFull":"", "keywords":[""]}',
-    "规则：",
-    "1. zhPromptShort 是精简版提示词，只保留核心视觉信息，用两到三句话完成。",
-    "2. zhPromptFull 是完整细化版提示词，重点描述主体、构图、镜头、光线、材质、色彩、风格、氛围和细节。",
-    "3. 不要臆造商标、人物身份或受版权保护角色名；不确定时用通用描述。",
-    "4. title 用 12 字以内概括主题。",
-    "5. keywords 给 6 到 12 个中文短词。",
-    `补充上下文：页面地址 ${payload.pageUrl || "unknown"}；图片 alt ${payload.alt || "none"}。`
-  ].join("\n");
+  const prompt = buildAnalyzePrompt(payload);
 
   const response = await callGeminiGenerateContent({
     apiKey: settings.geminiApiKey,
@@ -138,16 +126,24 @@ async function analyzeImage(payload) {
 
   const rawText = extractTextFromGemini(response);
   const parsed = parseLooseJson(rawText);
+  const calibrated = calibratePromptPayload(parsed);
 
-  if (!parsed?.zhPromptShort || !parsed?.zhPromptFull) {
+  if (
+    !calibrated.zhPromptShort ||
+    !calibrated.zhPromptFull ||
+    !calibrated.enPromptShort ||
+    !calibrated.enPromptFull
+  ) {
     throw new Error("Model did not return a valid prompt.");
   }
 
   return {
-    title: String(parsed.title || "图片提示词"),
-    zhPromptShort: String(parsed.zhPromptShort || "").trim(),
-    zhPromptFull: String(parsed.zhPromptFull || "").trim(),
-    keywords: Array.isArray(parsed.keywords) ? parsed.keywords.map(String) : [],
+    title: calibrated.title,
+    enPromptShort: calibrated.enPromptShort,
+    enPromptFull: calibrated.enPromptFull,
+    zhPromptShort: calibrated.zhPromptShort,
+    zhPromptFull: calibrated.zhPromptFull,
+    keywords: calibrated.keywords,
     sourceImageUrl: imageUrl
   };
 }
@@ -309,6 +305,349 @@ function parseLooseJson(rawText) {
       : candidate;
 
   return JSON.parse(jsonText);
+}
+
+function buildAnalyzePrompt(payload) {
+  return [
+    "角色设定：你是一位资深视觉导演，擅长将视觉图像逆向工程为 Nano Banana 2 专用渲染指令。",
+    "核心任务：分析上传图片，提取其视觉基因，并优先还原原图的风格、镜头语言、光影结构、材质细节和构图关系。",
+    "输出语言：最终返回自然、连贯的中文提示词。只有在摄影、镜头、渲染、设备或光学术语更准确时，才保留必要的英文专业词汇，例如 Global illumination、ARRI Alexa Cinema Camera、Shot on Hasselblad。",
+    "禁止事项：禁止使用空泛形容词，例如 Beautiful、High quality、Amazing、Stunning、Gorgeous；禁止编造商标、人物身份或受版权保护角色名，不确定时用通用描述。",
+    "分析图片时必须强制拆解以下四个维度：",
+    "1. Camera & Lens：焦段、光圈、机位、拍摄角度，例如 16mm 广角、85mm 人像、f/1.8、f/11、low angle、eye level。",
+    "2. Lighting Setup：布光方向、光质与效果，例如 side lighting、rim light、soft diffusion、hard shadows、Tyndall effect、cinematic glow。",
+    "3. Material & Texture：微观材质与光学表现，例如 pores、fabric weave、refraction、subsurface scattering。",
+    "4. Compositional Logic：构图与空间层次，例如 rule of thirds、centered composition、foreground blur、leading lines。",
+    "最终提示词的描述结构必须按以下顺序组织：主体、风格/媒介、光线、镜头、环境。",
+    "请先内部完成一次自校验：如果根据最终 Prompt 重新作图，无法还原原图 90% 的核心视觉变量，就在输出前补足缺失项。",
+    "输出要求：返回严格合法 JSON，不要 Markdown，不要解释，不要额外前后缀。",
+    'JSON 格式：{"title":"","enPromptShort":"","enPromptFull":"","zhPromptShort":"","zhPromptFull":"","keywords":[""],"analysis":{"subject":"","styleMedium":"","lighting":"","camera":"","environment":"","materialTexture":"","composition":""},"nanoBananaTerms":[""]}',
+    "字段规则：",
+    "1. title 用 12 字以内概括主题。",
+    "2. enPromptShort 为精简版英文提示词，用两到三句话完成，但必须覆盖主体、风格、光线和镜头。",
+    "3. enPromptFull 为完整版英文提示词，必须覆盖主体、风格/媒介、光线、镜头、环境、材质/纹理、构图逻辑，并尽量贴近 Nano Banana 2 的渲染语言。",
+    "4. zhPromptShort 为精简版纯中文提示词，对应 enPromptShort 的语义，不要夹杂无必要的英文说明。",
+    "5. zhPromptFull 为完整版纯中文提示词，对应 enPromptFull 的语义，不要夹杂无必要的英文说明。",
+    "6. analysis 对象中的每个字段都要尽量填写具体可观察信息，缺失时留空字符串，不要编造。",
+    "7. nanoBananaTerms 提供 3 到 8 个与画面强相关的高权重英文术语，优先从这些词中选择：Extreme fidelity、Ray-traced reflections、Volumetric fog、Global illumination、Color graded for cinema、Teal and orange palette、Subsurface scattering、Shot on Hasselblad、ARRI Alexa Cinema Camera、Anamorphic lens flares。",
+    "8. keywords 提供 6 到 12 个中文短词。",
+    `补充上下文：页面地址 ${payload.pageUrl || "unknown"}；图片 alt ${payload.alt || "none"}。`
+  ].join("\n");
+}
+
+function calibratePromptPayload(parsed) {
+  const analysis = normalizeAnalysis(parsed?.analysis);
+  const nanoTerms = selectNanoBananaTerms(parsed?.nanoBananaTerms, analysis);
+  const enShortPrompt = finalizePromptVariant(parsed?.enPromptShort, {
+    detail: "short",
+    language: "en",
+    analysis,
+    nanoTerms
+  });
+  const enFullPrompt = finalizePromptVariant(parsed?.enPromptFull, {
+    detail: "full",
+    language: "en",
+    analysis,
+    nanoTerms
+  });
+  const shortPrompt = finalizePromptVariant(parsed?.zhPromptShort, {
+    detail: "short",
+    language: "zh",
+    analysis,
+    nanoTerms
+  });
+  const fullPrompt = finalizePromptVariant(parsed?.zhPromptFull, {
+    detail: "full",
+    language: "zh",
+    analysis,
+    nanoTerms
+  });
+  const keywords = normalizeKeywords(parsed?.keywords, analysis, nanoTerms);
+
+  return {
+    title: String(parsed?.title || "图片提示词").trim() || "图片提示词",
+    enPromptShort: enShortPrompt,
+    enPromptFull: enFullPrompt,
+    zhPromptShort: shortPrompt,
+    zhPromptFull: fullPrompt,
+    keywords
+  };
+}
+
+function normalizeAnalysis(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    subject: cleanSnippet(source.subject),
+    styleMedium: cleanSnippet(source.styleMedium),
+    lighting: cleanSnippet(source.lighting),
+    camera: cleanSnippet(source.camera),
+    environment: cleanSnippet(source.environment),
+    materialTexture: cleanSnippet(source.materialTexture),
+    composition: cleanSnippet(source.composition)
+  };
+}
+
+function normalizeKeywords(input, analysis, nanoTerms) {
+  const list = Array.isArray(input) ? input.map((item) => cleanSnippet(item)).filter(Boolean) : [];
+  const fallbacks = [
+    analysis.subject,
+    analysis.styleMedium,
+    analysis.lighting,
+    analysis.camera,
+    analysis.materialTexture,
+    analysis.composition,
+    ...nanoTerms
+  ]
+    .flatMap((item) => splitKeywordCandidates(item))
+    .filter(Boolean);
+
+  return Array.from(new Set([...list, ...fallbacks])).slice(0, 12);
+}
+
+function splitKeywordCandidates(text) {
+  return String(text || "")
+    .split(/[，,、/]|(?:\s+-\s+)/)
+    .map((item) => cleanSnippet(item))
+    .filter((item) => item && item.length <= 32);
+}
+
+function selectNanoBananaTerms(input, analysis) {
+  const requested = Array.isArray(input) ? input.map((item) => cleanEnglishTerm(item)).filter(Boolean) : [];
+  const merged = new Set(requested);
+  const context = [
+    analysis.styleMedium,
+    analysis.lighting,
+    analysis.environment,
+    analysis.materialTexture,
+    analysis.composition
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  merged.add("Extreme fidelity");
+  merged.add("Global illumination");
+
+  if (/(电影|cinema|cinematic|film|胶片|叙事|screen|movie)/i.test(context)) {
+    merged.add("Color graded for cinema");
+    merged.add("ARRI Alexa Cinema Camera");
+  }
+
+  if (/(青橙|teal|orange)/i.test(context)) {
+    merged.add("Teal and orange palette");
+  }
+
+  if (/(雾|fog|mist|haze|烟|逆光|god ray|丁达尔|volumetric)/i.test(context)) {
+    merged.add("Volumetric fog");
+  }
+
+  if (/(镜面|反射|玻璃|金属|水面|wet|chrome|reflection|reflective|refraction)/i.test(context)) {
+    merged.add("Ray-traced reflections");
+  }
+
+  if (/(皮肤|玉石|蜡|叶片|半透明|subsurface|sss|translucent|skin)/i.test(context)) {
+    merged.add("Subsurface scattering");
+  }
+
+  if (/(宽银幕|anamorphic|flare|光晕|cinema scope)/i.test(context)) {
+    merged.add("Anamorphic lens flares");
+  }
+
+  if (/(肌理|细节|纹理|commercial|product|fashion|editorial|hasselblad)/i.test(context)) {
+    merged.add("Shot on Hasselblad");
+  }
+
+  return Array.from(merged).slice(0, 8);
+}
+
+function cleanEnglishTerm(text) {
+  const normalized = cleanSnippet(text);
+  if (!normalized) return "";
+  return normalized.replace(/[。；;]+$/g, "");
+}
+
+function finalizePromptVariant(text, { detail, language, analysis, nanoTerms }) {
+  let normalized = sanitizePromptText(text);
+
+  if (!normalized) {
+    normalized = composePromptFromAnalysis(analysis, detail, language);
+  }
+
+  normalized = ensureCoverage(normalized, { detail, language, analysis });
+  normalized = injectNanoBananaTerms(normalized, nanoTerms, detail, language);
+  return normalized.trim();
+}
+
+function sanitizePromptText(text) {
+  const stripped = String(text || "")
+    .replace(/\b(?:Beautiful|High quality|Amazing|Stunning|Gorgeous|Epic|Nice)\b/gi, "")
+    .replace(/\b(?:there is|there are|the image shows|the picture shows|in the image)\b/gi, "")
+    .replace(/(?:^|[，,。]\s*)(?:画面中|图片中|图像中)(?:展示|呈现|显示|是|有)/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[，,]\s*[，,]/g, "，")
+    .replace(/[。]\s*[。]/g, "。")
+    .trim();
+
+  return stripped
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/([，。；：])\s+/g, "$1 ");
+}
+
+function composePromptFromAnalysis(analysis, detail, language) {
+  const parts = [];
+
+  if (language === "en") {
+    if (analysis.subject) parts.push(analysis.subject);
+    if (analysis.styleMedium) parts.push(`rendered with ${analysis.styleMedium}`);
+    if (analysis.lighting) parts.push(`lighting defined by ${analysis.lighting}`);
+    if (analysis.camera) parts.push(`camera language shaped by ${analysis.camera}`);
+    if (analysis.environment) parts.push(`environment and spatial relationship described as ${analysis.environment}`);
+    if (detail === "full" && analysis.materialTexture) {
+      parts.push(`material and texture detail focused on ${analysis.materialTexture}`);
+    }
+    if (detail === "full" && analysis.composition) {
+      parts.push(`composition and spatial layering built around ${analysis.composition}`);
+    }
+  } else {
+    if (analysis.subject) parts.push(analysis.subject);
+    if (analysis.styleMedium) parts.push(`整体采用${analysis.styleMedium}的风格与媒介表现`);
+    if (analysis.lighting) parts.push(`光线以${analysis.lighting}为主`);
+    if (analysis.camera) parts.push(`镜头语言与拍摄方式体现为${analysis.camera}`);
+    if (analysis.environment) parts.push(`环境与空间关系呈现为${analysis.environment}`);
+    if (detail === "full" && analysis.materialTexture) {
+      parts.push(`材质与纹理细节强调${analysis.materialTexture}`);
+    }
+    if (detail === "full" && analysis.composition) {
+      parts.push(`构图与层次关系采用${analysis.composition}`);
+    }
+  }
+
+  return mergePromptSegments(parts, language);
+}
+
+function ensureCoverage(text, { detail, language, analysis }) {
+  const additions = [];
+
+  if (!hasLightingSignals(text)) {
+    additions.push(
+      analysis.lighting ||
+        (language === "en"
+          ? "natural sunlight with soft diffusion and controlled shadow separation"
+          : "自然光配合 soft diffusion，阴影层次清晰")
+    );
+  }
+
+  if (!hasCameraSignals(text)) {
+    additions.push(
+      analysis.camera ||
+        (language === "en"
+          ? "eye-level perspective, 50mm lens, realistic depth of field"
+          : "eye-level 视角，50mm 镜头，真实景深")
+    );
+  }
+
+  if (detail === "full" && !hasMaterialSignals(text)) {
+    additions.push(
+      analysis.materialTexture ||
+        (language === "en"
+          ? "clear visible surface texture, realistic fabric weave or skin detail"
+          : "可见表面肌理清晰，织物纹理或皮肤细节真实可辨")
+    );
+  }
+
+  if (detail === "full" && !hasCompositionSignals(text)) {
+    additions.push(
+      analysis.composition ||
+        (language === "en"
+          ? "clear subject separation, layered depth, balanced foreground and background relationship"
+          : "主体分离明确，空间层次清楚，前后景关系平衡")
+    );
+  }
+
+  if (detail === "full" && analysis.environment && !hasEnvironmentSignals(text)) {
+    additions.push(analysis.environment);
+  }
+
+  return mergePromptSegments([text, ...additions], language);
+}
+
+function injectNanoBananaTerms(text, nanoTerms, detail, language) {
+  const selectedTerms = Array.isArray(nanoTerms) ? nanoTerms.filter(Boolean) : [];
+  if (selectedTerms.length === 0) return text;
+
+  const missing = selectedTerms.filter((term) => !new RegExp(escapeRegExp(term), "i").test(text));
+  const limited = detail === "short" ? missing.slice(0, 3) : missing.slice(0, 5);
+  if (limited.length === 0) return text;
+
+  const clause =
+    language === "en"
+      ? detail === "short"
+        ? `with ${limited.join(", ")} rendering cues`
+        : `enhanced with ${limited.join(", ")} rendering characteristics`
+      : detail === "short"
+        ? `${limited.join("、")}的渲染质感`
+        : `并带有${limited.join("、")}等渲染特征`;
+
+  return mergePromptSegments([text, clause], language);
+}
+
+function mergePromptSegments(segments, language = "zh") {
+  const filtered = segments.map((item) => cleanSnippet(item)).filter(Boolean);
+  if (filtered.length === 0) return "";
+
+  let output = filtered[0];
+
+  for (const segment of filtered.slice(1)) {
+    if (/[。！？]$/.test(output)) {
+      output = `${output} ${segment}`;
+    } else {
+      output = language === "en" ? `${output}, ${segment}` : `${output}，${segment}`;
+    }
+  }
+
+  return output
+    .replace(/\s+/g, " ")
+    .replace(language === "en" ? /,\s*,/g : /，\s*，/g, language === "en" ? "," : "，")
+    .replace(/。\s*。/g, "。")
+    .trim();
+}
+
+function cleanSnippet(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/^[，,。；;:：\-\s]+|[，,。；;:：\-\s]+$/g, "")
+    .trim();
+}
+
+function hasLightingSignals(text) {
+  return /(lighting|light|shadow|rim light|side lighting|soft diffusion|hard shadows|cinematic glow|丁达尔|布光|光线|光影|侧光|逆光|轮廓光|自然光|棚拍)/i.test(
+    text
+  );
+}
+
+function hasCameraSignals(text) {
+  return /(camera|lens|mm\b|f\/\d|eye-level|eye level|low angle|high angle|shot on|焦段|镜头|机位|仰拍|俯拍|平拍|光圈)/i.test(
+    text
+  );
+}
+
+function hasMaterialSignals(text) {
+  return /(texture|material|pores|fabric weave|refraction|subsurface scattering|材质|纹理|肌理|毛孔|折射|次表面散射)/i.test(
+    text
+  );
+}
+
+function hasCompositionSignals(text) {
+  return /(composition|rule of thirds|centered|foreground blur|leading lines|构图|景深|前景虚化|引导线|对称|三分法)/i.test(
+    text
+  );
+}
+
+function hasEnvironmentSignals(text) {
+  return /(environment|background|spatial|space|scene|环境|背景|空间|场景)/i.test(text);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function fetchImageAsInlineData(imageUrl) {

@@ -47,6 +47,7 @@ panel.innerHTML = `
         <div class="pg-chip-group">
           <button class="pg-chip is-active" id="pg-detail-short" type="button">精简版</button>
           <button class="pg-chip" id="pg-detail-full" type="button">完整版</button>
+          <button class="pg-chip" id="pg-toggle-translation" type="button">翻译</button>
         </div>
       </div>
 
@@ -103,6 +104,7 @@ const els = {
   openOptions: panel.querySelector("#pg-open-options"),
   detailShort: panel.querySelector("#pg-detail-short"),
   detailFull: panel.querySelector("#pg-detail-full"),
+  toggleTranslation: panel.querySelector("#pg-toggle-translation"),
   ratioSelect: panel.querySelector("#pg-ratio-select"),
   inlinePreview: panel.querySelector("#pg-inline-preview"),
   inlineGrid: panel.querySelector("#pg-inline-grid")
@@ -124,10 +126,20 @@ function createEmptyPanelData() {
   return {
     title: "",
     detail: "short",
+    languageByDetail: {
+      short: "en",
+      full: "en"
+    },
     aspectRatio: "1:1",
     prompts: {
-      short: "",
-      full: ""
+      short: {
+        en: "",
+        zh: ""
+      },
+      full: {
+        en: "",
+        zh: ""
+      }
     }
   };
 }
@@ -150,13 +162,14 @@ function bindEvents() {
   });
 
   els.input.addEventListener("input", () => {
-    state.panelData.prompts[state.panelData.detail] = els.input.value;
+    state.panelData.prompts[state.panelData.detail][getCurrentLanguage()] = els.input.value;
     updateMeta();
     persistPanelImageCache();
   });
 
   els.detailShort.addEventListener("click", () => switchDetail("short"));
   els.detailFull.addEventListener("click", () => switchDetail("full"));
+  els.toggleTranslation.addEventListener("click", togglePromptLanguage);
   els.analyze.addEventListener("click", () => analyzeCurrentImage({ force: true }));
 
   els.ratioSelect.addEventListener("change", () => {
@@ -311,11 +324,21 @@ async function analyzeCurrentImage({ force }) {
 
     const cached = {
       title: result.title || "图片提示词",
-      detail: state.panelData.detail || "full",
+      detail: state.panelData.detail || "short",
+      languageByDetail: {
+        short: "en",
+        full: "en"
+      },
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
       prompts: {
-        short: result.zhPromptShort || "",
-        full: result.zhPromptFull || ""
+        short: {
+          en: result.enPromptShort || "",
+          zh: result.zhPromptShort || ""
+        },
+        full: {
+          en: result.enPromptFull || "",
+          zh: result.zhPromptFull || ""
+        }
       }
     };
 
@@ -329,14 +352,26 @@ function switchDetail(detail) {
   syncPromptControls();
 }
 
+function togglePromptLanguage() {
+  const detail = state.panelData.detail;
+  const current = state.panelData.languageByDetail?.[detail] || "en";
+  state.panelData.languageByDetail[detail] = current === "en" ? "zh" : "en";
+  syncPromptControls();
+  persistPanelImageCache();
+}
+
 function hydratePanelData(data) {
   state.panelData = {
     title: data.title || "图片提示词",
     detail: data.detail || "short",
+    languageByDetail: {
+      short: data.languageByDetail?.short || "en",
+      full: data.languageByDetail?.full || "en"
+    },
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     prompts: {
-      short: data.prompts?.short || "",
-      full: data.prompts?.full || ""
+      short: normalizePromptPair(data.prompts?.short),
+      full: normalizePromptPair(data.prompts?.full)
     }
   };
 
@@ -349,12 +384,34 @@ function hydratePanelData(data) {
 function syncPromptControls() {
   els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
   els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
+  els.toggleTranslation.classList.toggle("is-active", getCurrentLanguage() === "zh");
+  els.toggleTranslation.textContent = getCurrentLanguage() === "en" ? "翻译" : "查看英文";
   els.input.value = getCurrentPrompt();
   updateMeta();
 }
 
 function getCurrentPrompt() {
-  return state.panelData.prompts[state.panelData.detail] || "";
+  const detail = state.panelData.detail;
+  const language = getCurrentLanguage();
+  return state.panelData.prompts[detail]?.[language] || "";
+}
+
+function getCurrentLanguage() {
+  return state.panelData.languageByDetail?.[state.panelData.detail] || "en";
+}
+
+function normalizePromptPair(value) {
+  if (value && typeof value === "object") {
+    return {
+      en: String(value.en || "").trim(),
+      zh: String(value.zh || "").trim()
+    };
+  }
+
+  return {
+    en: "",
+    zh: String(value || "").trim()
+  };
 }
 
 async function generateFromCurrentPrompt() {
