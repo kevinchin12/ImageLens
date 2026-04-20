@@ -25,9 +25,12 @@ panel.innerHTML = `
   <div class="pg-shell">
     <div class="pg-header">
       <div class="pg-title">
-        <strong>Prompt Glass</strong>
+        <strong>图透镜 Image Lens</strong>
       </div>
-      <button class="pg-close" id="pg-close" type="button">关闭</button>
+      <div class="pg-header-actions">
+        <button class="pg-icon-button" id="pg-open-options" type="button" aria-label="打开设置" title="打开设置">⚙</button>
+        <button class="pg-close" id="pg-close" type="button">关闭</button>
+      </div>
     </div>
 
     <div class="pg-row">
@@ -79,6 +82,8 @@ panel.innerHTML = `
         <div class="pg-inline-stack" id="pg-inline-grid"></div>
       </div>
     </section>
+
+    <p class="pg-credit">© 2026 嘉文钱. Licensed under MIT</p>
   </div>
 `;
 
@@ -95,6 +100,7 @@ const els = {
   copy: panel.querySelector("#pg-copy"),
   generate: panel.querySelector("#pg-generate"),
   close: panel.querySelector("#pg-close"),
+  openOptions: panel.querySelector("#pg-open-options"),
   detailShort: panel.querySelector("#pg-detail-short"),
   detailFull: panel.querySelector("#pg-detail-full"),
   ratioSelect: panel.querySelector("#pg-ratio-select"),
@@ -139,6 +145,9 @@ function bindEvents() {
   });
 
   els.close.addEventListener("click", closePanel);
+  els.openOptions.addEventListener("click", async () => {
+    await sendMessage({ type: "open-options" });
+  });
 
   els.input.addEventListener("input", () => {
     state.panelData.prompts[state.panelData.detail] = els.input.value;

@@ -95,6 +95,12 @@
   justify-content: space-between;
 }
 
+.pg-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .pg-title {
   display: flex;
   flex-direction: column;
@@ -116,7 +122,8 @@
 .pg-close,
 .pg-chip,
 .pg-action,
-.pg-select {
+.pg-select,
+.pg-icon-button {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
@@ -133,6 +140,17 @@
   min-height: 34px;
   padding: 0 12px;
   border-radius: 999px;
+  cursor: pointer;
+}
+
+.pg-icon-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
@@ -296,6 +314,14 @@
 .pg-inline-stack {
   display: grid;
   gap: 12px;
+}
+
+.pg-credit {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(226, 236, 255, 0.46);
+  text-align: right;
 }
 
 .pg-preview-card {

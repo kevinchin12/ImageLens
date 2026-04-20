@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Prompt Glass",
+  "name": "图透镜 Image Lens",
   "version": "0.1.0",
   "description": "Analyze webpage images, generate editable prompts, translate them, and send them to Gemini image generation.",
   "permissions": ["storage", "tabs"],
@@ -22,6 +22,6 @@
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "Prompt Glass"
+    "default_title": "图透镜 Image Lens"
   }
 }

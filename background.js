@@ -48,6 +48,8 @@ async function handleMessage(message) {
       return generateImage(message.payload || {});
     case "open-viewer":
       return openViewer(message.payload || {});
+    case "open-options":
+      return openOptionsPage();
     default:
       throw new Error(`Unsupported message type: ${message.type}`);
   }
@@ -217,6 +219,11 @@ async function generateImage(payload) {
 
 async function openViewer() {
   await openViewerTab();
+  return { opened: true };
+}
+
+async function openOptionsPage() {
+  await chrome.runtime.openOptionsPage();
   return { opened: true };
 }
 
