@@ -10,6 +10,11 @@
   --pg-success: #6ee7b7;
 }
 
+#pg-panel,
+#pg-panel * {
+  box-sizing: border-box;
+}
+
 #pg-hover-trigger {
   position: fixed;
   z-index: 2147483643;
@@ -71,7 +76,9 @@
   gap: 14px;
   padding: 18px;
   max-height: calc(100vh - 48px);
+  width: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .pg-header,
@@ -162,6 +169,7 @@
 .pg-section {
   display: grid;
   gap: 12px;
+  width: 100%;
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -173,6 +181,7 @@
 
 .pg-textarea {
   width: 100%;
+  max-width: 100%;
   min-height: 190px;
   resize: vertical;
   border: 1px solid rgba(255, 255, 255, 0.12);
