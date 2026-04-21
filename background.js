@@ -758,7 +758,11 @@ function normalizeChinesePrompt(text, detail) {
   }
 
   normalized = normalized
-    .replace(/\b[a-zA-Z][a-zA-Z0-9/-]*\b/g, "")
+    .replace(/([^a-zA-Z])f(\d)/g, "$1f/$2")
+    .replace(/([A-Za-z])\s*版/g, "$1版")
+    .replace(/\b([A-Za-z])\s+([A-Za-z])\b/g, "$1$2")
+    .replace(/\b([A-Za-z])\b(?=版)/g, "$1")
+    .replace(/\b([A-Za-z]+)\b/g, (match) => preserveChineseUsefulToken(match))
     .replace(/\s+/g, " ")
     .replace(/[，,]\s*[，,]/g, "，")
     .replace(/。+/g, "。")
@@ -821,6 +825,29 @@ function mapNanoTermToChinese(term) {
   };
 
   return dictionary[term] || term;
+}
+
+function preserveChineseUsefulToken(token) {
+  const value = String(token || "").trim();
+  if (!value) return "";
+
+  if (/^f\/\d+(?:\.\d+)?$/i.test(value)) {
+    return value.toLowerCase();
+  }
+
+  if (/^[A-Za-z]$/.test(value)) {
+    return value.toUpperCase();
+  }
+
+  if (/^(Q|IP|CG|3D|2D|HDR|RAW|SD|HD|UI|UX)$/i.test(value)) {
+    return value.toUpperCase();
+  }
+
+  if (/^\d+[kK]$/.test(value)) {
+    return value.toLowerCase();
+  }
+
+  return "";
 }
 
 function normalizeChinesePunctuation(text) {
