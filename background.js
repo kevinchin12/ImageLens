@@ -839,7 +839,11 @@ function preserveChineseUsefulToken(token) {
     return value.toUpperCase();
   }
 
-  if (/^(Q|IP|CG|3D|2D|HDR|RAW|SD|HD|UI|UX)$/i.test(value)) {
+  if (
+    /^(Q|IP|CG|3D|2D|4K|8K|HDR|RAW|SD|HD|UI|UX|LORA|A3|A4|A5|RGB|CMYK|sRGB|AdobeRGB|JPEG|JPG|PNG|WEBP|GIF|PSD|PS|AI)$/i.test(
+      value
+    )
+  ) {
     return value.toUpperCase();
   }
 
