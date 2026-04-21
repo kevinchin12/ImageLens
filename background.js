@@ -311,7 +311,7 @@ function buildAnalyzePrompt(payload) {
   return [
     "角色设定：你是一位资深视觉导演，擅长将视觉图像逆向工程为 Nano Banana 2 专用渲染指令。",
     "核心任务：分析上传图片，提取其视觉基因，并优先还原原图的风格、镜头语言、光影结构、材质细节和构图关系。",
-    "输出语言：最终返回自然、连贯的中文提示词。只有在摄影、镜头、渲染、设备或光学术语更准确时，才保留必要的英文专业词汇，例如 Global illumination、ARRI Alexa Cinema Camera、Shot on Hasselblad。",
+    "输出语言：英文提示词是主稿，直接用于生图；中文提示词必须基于英文提示词逐义翻译，保持语义一致。中文提示词必须是纯中文表达，除数字、焦段、光圈等必要参数外，不要保留英文单词或英文标签。",
     "禁止事项：禁止使用空泛形容词，例如 Beautiful、High quality、Amazing、Stunning、Gorgeous；禁止编造商标、人物身份或受版权保护角色名，不确定时用通用描述。",
     "分析图片时必须强制拆解以下四个维度：",
     "1. Camera & Lens：焦段、光圈、机位、拍摄角度，例如 16mm 广角、85mm 人像、f/1.8、f/11、low angle、eye level。",
@@ -324,10 +324,10 @@ function buildAnalyzePrompt(payload) {
     'JSON 格式：{"title":"","enPromptShort":"","enPromptFull":"","zhPromptShort":"","zhPromptFull":"","keywords":[""],"analysis":{"subject":"","styleMedium":"","lighting":"","camera":"","environment":"","materialTexture":"","composition":""},"nanoBananaTerms":[""]}',
     "字段规则：",
     "1. title 用 12 字以内概括主题。",
-    "2. enPromptShort 为精简版英文提示词，用两到三句话完成，但必须覆盖主体、风格、光线和镜头。",
+    "2. enPromptShort 为精简版英文提示词，用两到三句话完成，但必须覆盖主体、风格、光线和镜头，并直接面向生图模型写作。",
     "3. enPromptFull 为完整版英文提示词，必须覆盖主体、风格/媒介、光线、镜头、环境、材质/纹理、构图逻辑，并尽量贴近 Nano Banana 2 的渲染语言。",
-    "4. zhPromptShort 为精简版纯中文提示词，对应 enPromptShort 的语义，不要夹杂无必要的英文说明。",
-    "5. zhPromptFull 为完整版纯中文提示词，对应 enPromptFull 的语义，不要夹杂无必要的英文说明。",
+    "4. zhPromptShort 必须是 enPromptShort 的中文翻译版，优先保证语义对应，不要自行扩写成另一套提示词；必须更精炼，控制在一到两句话内，突出主体、风格、光线和镜头即可。",
+    "5. zhPromptFull 必须是 enPromptFull 的中文翻译版，优先保证语义对应，不要自行扩写成另一套提示词；必须使用纯中文表达。",
     "6. analysis 对象中的每个字段都要尽量填写具体可观察信息，缺失时留空字符串，不要编造。",
     "7. nanoBananaTerms 提供 3 到 8 个与画面强相关的高权重英文术语，优先从这些词中选择：Extreme fidelity、Ray-traced reflections、Volumetric fog、Global illumination、Color graded for cinema、Teal and orange palette、Subsurface scattering、Shot on Hasselblad、ARRI Alexa Cinema Camera、Anamorphic lens flares。",
     "8. keywords 提供 6 到 12 个中文短词。",
@@ -474,6 +474,11 @@ function finalizePromptVariant(text, { detail, language, analysis, nanoTerms }) 
 
   normalized = ensureCoverage(normalized, { detail, language, analysis });
   normalized = injectNanoBananaTerms(normalized, nanoTerms, detail, language);
+  if (language === "en") {
+    normalized = normalizeEnglishPrompt(normalized, detail);
+  } else {
+    normalized = normalizeChinesePrompt(normalized, detail);
+  }
   return normalized.trim();
 }
 
@@ -532,7 +537,7 @@ function ensureCoverage(text, { detail, language, analysis }) {
       analysis.lighting ||
         (language === "en"
           ? "natural sunlight with soft diffusion and controlled shadow separation"
-          : "自然光配合 soft diffusion，阴影层次清晰")
+          : "自然光配合柔和漫射，阴影层次清晰")
     );
   }
 
@@ -541,7 +546,7 @@ function ensureCoverage(text, { detail, language, analysis }) {
       analysis.camera ||
         (language === "en"
           ? "eye-level perspective, 50mm lens, realistic depth of field"
-          : "eye-level 视角，50mm 镜头，真实景深")
+          : "平视视角，50毫米镜头，景深自然")
     );
   }
 
@@ -584,8 +589,8 @@ function injectNanoBananaTerms(text, nanoTerms, detail, language) {
         ? `with ${limited.join(", ")} rendering cues`
         : `enhanced with ${limited.join(", ")} rendering characteristics`
       : detail === "short"
-        ? `${limited.join("、")}的渲染质感`
-        : `并带有${limited.join("、")}等渲染特征`;
+        ? `${limited.map(mapNanoTermToChinese).join("、")}的渲染质感`
+        : `并带有${limited.map(mapNanoTermToChinese).join("、")}等渲染特征`;
 
   return mergePromptSegments([text, clause], language);
 }
@@ -648,6 +653,206 @@ function hasEnvironmentSignals(text) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeEnglishPrompt(text, detail) {
+  let normalized = String(text || "");
+  const replacements = [
+    [/主体/g, "subject"],
+    [/风格/g, "style"],
+    [/媒介/g, "medium"],
+    [/光线/g, "lighting"],
+    [/镜头/g, "lens"],
+    [/机位/g, "camera angle"],
+    [/环境/g, "environment"],
+    [/空间关系/g, "spatial relationship"],
+    [/材质/g, "material"],
+    [/纹理/g, "texture"],
+    [/构图/g, "composition"],
+    [/层次/g, "layering"],
+    [/景深/g, "depth of field"],
+    [/平视/g, "eye-level"],
+    [/仰拍/g, "low-angle shot"],
+    [/俯拍/g, "high-angle shot"],
+    [/低机位/g, "low angle"],
+    [/高机位/g, "high angle"],
+    [/侧光/g, "side lighting"],
+    [/轮廓光/g, "rim light"],
+    [/逆光/g, "backlighting"],
+    [/柔和漫射/g, "soft diffusion"],
+    [/硬阴影/g, "hard shadows"],
+    [/自然光/g, "natural light"],
+    [/体积雾/g, "volumetric fog"],
+    [/全局光照/g, "global illumination"],
+    [/光线追踪反射/g, "ray-traced reflections"],
+    [/次表面散射/g, "subsurface scattering"],
+    [/电影级调色/g, "cinematic color grading"],
+    [/青橙色调/g, "teal and orange palette"],
+    [/变形宽银幕光晕/g, "anamorphic lens flares"],
+    [/哈苏质感/g, "Hasselblad look"],
+    [/阿莱电影机质感/g, "ARRI Alexa cinema camera look"],
+    [/毫米/g, "mm"]
+  ];
+
+  for (const [pattern, value] of replacements) {
+    normalized = normalized.replace(pattern, value);
+  }
+
+  normalized = normalized
+    .replace(/[，、；：]/g, ", ")
+    .replace(/。/g, ". ")
+    .replace(/([^a-zA-Z])f(\d)/g, "$1f/$2")
+    .replace(/(\d+)\s*毫米/g, "$1mm")
+    .replace(/[\u4e00-\u9fff]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+,/g, ",")
+    .replace(/,\s*,/g, ",")
+    .replace(/\.\s*\./g, ".")
+    .trim();
+
+  if (detail === "short") {
+    normalized = normalized
+      .split(/[.!?]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(". ");
+    if (normalized && !/[.!?]$/.test(normalized)) {
+      normalized += ".";
+    }
+  }
+
+  if (!normalized) {
+    return detail === "short"
+      ? "Detailed subject, cinematic lighting, controlled camera perspective."
+      : "Detailed subject rendering, cinematic lighting, deliberate camera perspective, realistic material texture, and layered environmental depth.";
+  }
+
+  return normalized;
+}
+
+function normalizeChinesePrompt(text, detail) {
+  let normalized = String(text || "");
+  const replacements = [
+    [/\b(\d+)mm\b/gi, "$1毫米"],
+    [/\beye-?level\b/gi, "平视"],
+    [/\blow angle\b/gi, "低机位仰拍"],
+    [/\bhigh angle\b/gi, "高机位俯拍"],
+    [/\bsoft diffusion\b/gi, "柔和漫射"],
+    [/\bside lighting\b/gi, "侧光"],
+    [/\brim light\b/gi, "轮廓光"],
+    [/\bhard shadows?\b/gi, "硬阴影"],
+    [/\bglobal illumination\b/gi, "全局光照"],
+    [/\bvolumetric fog\b/gi, "体积雾"],
+    [/\bray-traced reflections?\b/gi, "光线追踪反射"],
+    [/\bsubsurface scattering\b/gi, "次表面散射"],
+    [/\bcolor graded for cinema\b/gi, "电影级调色"],
+    [/\bteal and orange palette\b/gi, "青橙色调"],
+    [/\banamorphic lens flares?\b/gi, "变形宽银幕光晕"],
+    [/\bshot on hasselblad\b/gi, "哈苏质感"],
+    [/\barri alexa cinema camera\b/gi, "阿莱电影机质感"]
+  ];
+
+  for (const [pattern, value] of replacements) {
+    normalized = normalized.replace(pattern, value);
+  }
+
+  normalized = normalized
+    .replace(/\b[a-zA-Z][a-zA-Z0-9/-]*\b/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[，,]\s*[，,]/g, "，")
+    .replace(/。+/g, "。")
+    .trim();
+
+  if (detail === "short") {
+    normalized = compressChineseShortPrompt(normalized);
+  }
+
+  return normalizeChinesePunctuation(normalized);
+}
+
+function compressChineseShortPrompt(text) {
+  let normalized = String(text || "")
+    .replace(/整体采用/g, "")
+    .replace(/的风格与媒介表现/g, "")
+    .replace(/镜头语言与拍摄方式体现为/g, "")
+    .replace(/环境与空间关系呈现为/g, "")
+    .replace(/光线以/g, "")
+    .replace(/为主/g, "")
+    .replace(/并带有[^。]+等渲染特征/g, "")
+    .replace(/材质与纹理细节强调[^。]+/g, "")
+    .trim();
+
+  const sentences = normalized
+    .split(/[。！？]/)
+    .map((item) => item.replace(/^[，、\s]+|[，、\s]+$/g, ""))
+    .filter(Boolean);
+
+  let compact = sentences.slice(0, 2).join("。");
+  if (compact && !/[。！？]$/.test(compact)) {
+    compact += "。";
+  }
+
+  if (compact.length > 72) {
+    compact = compact
+      .split("，")
+      .slice(0, 4)
+      .join("，");
+    if (compact && !/[。！？]$/.test(compact)) {
+      compact += "。";
+    }
+  }
+
+  return compact || normalized;
+}
+
+function mapNanoTermToChinese(term) {
+  const dictionary = {
+    "Extreme fidelity": "极高保真度",
+    "Ray-traced reflections": "光线追踪反射",
+    "Volumetric fog": "体积雾",
+    "Global illumination": "全局光照",
+    "Color graded for cinema": "电影级调色",
+    "Teal and orange palette": "青橙色调",
+    "Subsurface scattering": "次表面散射",
+    "Shot on Hasselblad": "哈苏质感",
+    "ARRI Alexa Cinema Camera": "阿莱电影机质感",
+    "Anamorphic lens flares": "变形宽银幕光晕"
+  };
+
+  return dictionary[term] || term;
+}
+
+function normalizeChinesePunctuation(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/[（(]\s*[）)]/g, "")
+    .replace(/\[\s*\]/g, "")
+    .replace(/【\s*】/g, "")
+    .replace(/《\s*》/g, "")
+    .replace(/「\s*」/g, "")
+    .replace(/『\s*』/g, "")
+    .replace(/[,.]+/g, "，")
+    .replace(/[;；]+/g, "；")
+    .replace(/[:：]+/g, "：")
+    .replace(/[!?！？]+/g, "。")
+    .replace(/、{2,}/g, "、")
+    .replace(/([，、；：]){2,}/g, "$1")
+    .replace(/([，、；：])(?=。)/g, "")
+    .replace(/。([，、；：])/g, "。")
+    .replace(/([，、；：])(?=[，、；：])/g, "")
+    .replace(/。{2,}/g, "。")
+    .replace(/\s*([，。；：、])/g, "$1")
+    .replace(/([，；：、])\s*/g, "$1")
+    .replace(/[（(]\s*([，。；：、])/g, "$1")
+    .replace(/([，。；：、])\s*[）)]/g, "$1")
+    .replace(/[（(]([^（）()]*)[）)]/g, (_, inner) => {
+      const cleaned = String(inner || "").trim();
+      return cleaned ? `（${cleaned}）` : "";
+    })
+    .replace(/^([，；：、。]+)/g, "")
+    .replace(/([，；：、]+)$/g, "")
+    .trim();
 }
 
 async function fetchImageAsInlineData(imageUrl) {

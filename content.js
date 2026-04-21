@@ -126,10 +126,7 @@ function createEmptyPanelData() {
   return {
     title: "",
     detail: "short",
-    languageByDetail: {
-      short: "en",
-      full: "en"
-    },
+    language: "zh",
     aspectRatio: "1:1",
     prompts: {
       short: {
@@ -325,10 +322,7 @@ async function analyzeCurrentImage({ force }) {
     const cached = {
       title: result.title || "图片提示词",
       detail: state.panelData.detail || "short",
-      languageByDetail: {
-        short: "en",
-        full: "en"
-      },
+      language: state.panelData.language || "zh",
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
       prompts: {
         short: {
@@ -353,9 +347,8 @@ function switchDetail(detail) {
 }
 
 function togglePromptLanguage() {
-  const detail = state.panelData.detail;
-  const current = state.panelData.languageByDetail?.[detail] || "en";
-  state.panelData.languageByDetail[detail] = current === "en" ? "zh" : "en";
+  const current = state.panelData.language || "zh";
+  state.panelData.language = current === "en" ? "zh" : "en";
   syncPromptControls();
   persistPanelImageCache();
 }
@@ -364,10 +357,7 @@ function hydratePanelData(data) {
   state.panelData = {
     title: data.title || "图片提示词",
     detail: data.detail || "short",
-    languageByDetail: {
-      short: data.languageByDetail?.short || "en",
-      full: data.languageByDetail?.full || "en"
-    },
+    language: data.language || data.languageByDetail?.[data.detail || "short"] || "zh",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     prompts: {
       short: normalizePromptPair(data.prompts?.short),
@@ -384,8 +374,7 @@ function hydratePanelData(data) {
 function syncPromptControls() {
   els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
   els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
-  els.toggleTranslation.classList.toggle("is-active", getCurrentLanguage() === "zh");
-  els.toggleTranslation.textContent = getCurrentLanguage() === "en" ? "翻译" : "查看英文";
+  els.toggleTranslation.textContent = getCurrentLanguage() === "zh" ? "查看英文" : "查看中文";
   els.input.value = getCurrentPrompt();
   updateMeta();
 }
@@ -397,7 +386,7 @@ function getCurrentPrompt() {
 }
 
 function getCurrentLanguage() {
-  return state.panelData.languageByDetail?.[state.panelData.detail] || "en";
+  return state.panelData.language || "zh";
 }
 
 function normalizePromptPair(value) {
