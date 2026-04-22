@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.zip
+dist/
+build/
+node_modules/
