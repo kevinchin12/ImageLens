@@ -1,8 +1,6 @@
 const form = document.getElementById("settings-form");
 const statusEl = document.getElementById("status");
 const docButton = document.getElementById("open-doc");
-const apiModeField = document.querySelector('[name="apiMode"]');
-const proxyFields = document.getElementById("proxy-fields");
 
 init();
 
@@ -22,12 +20,12 @@ form.addEventListener("submit", async (event) => {
   const formData = new FormData(form);
   const payload = {
     provider: "gemini",
-    apiMode: formData.get("apiMode"),
+    apiMode: "direct",
     geminiApiKey: formData.get("geminiApiKey"),
     geminiTextModel: formData.get("geminiTextModel"),
     geminiImageModel: formData.get("geminiImageModel"),
-    customProxyUrl: formData.get("customProxyUrl"),
-    customProxyToken: formData.get("customProxyToken"),
+    customProxyUrl: "",
+    customProxyToken: "",
     aspectRatio: formData.get("aspectRatio"),
     imageCount: Number(formData.get("imageCount")),
     autoAnalyze: getField("autoAnalyze")?.checked || false
@@ -42,8 +40,6 @@ form.addEventListener("submit", async (event) => {
     statusEl.textContent = error.message || "保存失败。";
   }
 });
-
-apiModeField?.addEventListener("change", syncModeFields);
 
 docButton.addEventListener("click", () => {
   chrome.tabs.create({
@@ -63,17 +59,10 @@ function hydrateForm(settings) {
 
     field.value = value;
   }
-
-  syncModeFields();
 }
 
 function getField(name) {
   return document.querySelector(`[name="${CSS.escape(name)}"]`);
-}
-
-function syncModeFields() {
-  const isProxy = apiModeField?.value === "proxy";
-  proxyFields?.classList.toggle("is-visible", isProxy);
 }
 
 async function sendMessage(message) {
