@@ -1,6 +1,8 @@
 const form = document.getElementById("settings-form");
 const statusEl = document.getElementById("status");
 const docButton = document.getElementById("open-doc");
+const apiModeField = document.querySelector('[name="apiMode"]');
+const proxyFields = document.getElementById("proxy-fields");
 
 init();
 
@@ -19,7 +21,7 @@ form.addEventListener("submit", async (event) => {
 
   const formData = new FormData(form);
   const payload = {
-    provider: formData.get("provider"),
+    provider: "gemini",
     apiMode: formData.get("apiMode"),
     geminiApiKey: formData.get("geminiApiKey"),
     geminiTextModel: formData.get("geminiTextModel"),
@@ -41,6 +43,8 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+apiModeField?.addEventListener("change", syncModeFields);
+
 docButton.addEventListener("click", () => {
   chrome.tabs.create({
     url: "https://ai.google.dev/gemini-api/docs/image-generation"
@@ -59,10 +63,17 @@ function hydrateForm(settings) {
 
     field.value = value;
   }
+
+  syncModeFields();
 }
 
 function getField(name) {
   return document.querySelector(`[name="${CSS.escape(name)}"]`);
+}
+
+function syncModeFields() {
+  const isProxy = apiModeField?.value === "proxy";
+  proxyFields?.classList.toggle("is-visible", isProxy);
 }
 
 async function sendMessage(message) {
