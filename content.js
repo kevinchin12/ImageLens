@@ -64,7 +64,7 @@ panel.innerHTML = `
       </div>
     </section>
 
-    <section class="pg-section">
+    <section class="pg-section" id="pg-generate-section">
       <div class="pg-section-head">
         <strong>立刻生图</strong>
       </div>
@@ -105,6 +105,7 @@ const els = {
   detailShort: panel.querySelector("#pg-detail-short"),
   detailFull: panel.querySelector("#pg-detail-full"),
   toggleTranslation: panel.querySelector("#pg-toggle-translation"),
+  generateSection: panel.querySelector("#pg-generate-section"),
   ratioSelect: panel.querySelector("#pg-ratio-select"),
   inlinePreview: panel.querySelector("#pg-inline-preview"),
   inlineGrid: panel.querySelector("#pg-inline-grid")
@@ -119,6 +120,7 @@ async function init() {
   state.panelData.aspectRatio = state.settings.aspectRatio || "1:1";
   renderRatioSelect();
   bindEvents();
+  syncGenerationVisibility();
   syncPromptControls();
 }
 
@@ -264,6 +266,7 @@ function hideHoverButton() {
 }
 
 async function openPanelForImage(image) {
+  state.settings = await sendMessage({ type: "get-settings" });
   state.panelImage = image;
   state.panelOpen = true;
   panel.classList.add("pg-open");
@@ -285,6 +288,7 @@ async function openPanelForImage(image) {
   state.panelData.detail = "short";
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
   renderRatioSelect();
+  syncGenerationVisibility();
   syncPromptControls();
   setStatus("等待识别...");
 
@@ -367,6 +371,7 @@ function hydratePanelData(data) {
 
   els.imageTitle.textContent = state.panelData.title || "图片提示词";
   renderRatioSelect();
+  syncGenerationVisibility();
   syncPromptControls();
   setStatus("识别完成，可直接编辑。", "success");
 }
@@ -404,6 +409,11 @@ function normalizePromptPair(value) {
 }
 
 async function generateFromCurrentPrompt() {
+  if (!state.settings?.imageGenerationEnabled) {
+    setStatus("生图功能当前已关闭。", "error");
+    return;
+  }
+
   const prompt = getCurrentPrompt().trim();
   if (!prompt) {
     setStatus("请先识别或输入提示词。", "error");
@@ -504,6 +514,11 @@ async function runAction(actionName, statusText, task) {
 function syncActionState() {
   els.analyze.classList.toggle("is-busy", state.actionState.analyze);
   els.generate.classList.toggle("is-busy", state.actionState.generate);
+}
+
+function syncGenerationVisibility() {
+  const enabled = Boolean(state.settings?.imageGenerationEnabled);
+  els.generateSection?.classList.toggle("pg-hidden", !enabled);
 }
 
 function setStatus(text, tone = "") {

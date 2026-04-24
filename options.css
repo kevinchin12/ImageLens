@@ -119,6 +119,15 @@ h3 {
   gap: 8px;
 }
 
+.field-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.field-stack.is-hidden {
+  display: none;
+}
+
 .proxy-fields {
   display: none;
   gap: 18px;

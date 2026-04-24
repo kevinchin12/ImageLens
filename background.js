@@ -1,6 +1,11 @@
 const DEFAULT_SETTINGS = {
   provider: "gemini",
   apiMode: "direct",
+  promptApiKey: "",
+  promptModel: "gemini-2.5-flash",
+  imageGenerationEnabled: true,
+  imageApiKey: "",
+  imageModel: "gemini-3.1-flash-image-preview",
   geminiApiKey: "",
   geminiTextModel: "gemini-2.5-flash",
   geminiImageModel: "gemini-3.1-flash-image-preview",
@@ -57,11 +62,38 @@ async function handleMessage(message) {
 
 async function getSettings() {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
-  return { ...DEFAULT_SETTINGS, ...stored };
+  const merged = { ...DEFAULT_SETTINGS, ...stored };
+
+  if (!merged.promptApiKey && merged.geminiApiKey) {
+    merged.promptApiKey = merged.geminiApiKey;
+  }
+
+  if (!merged.promptModel && merged.geminiTextModel) {
+    merged.promptModel = merged.geminiTextModel;
+  }
+
+  if (!merged.imageApiKey && merged.geminiApiKey) {
+    merged.imageApiKey = merged.geminiApiKey;
+  }
+
+  if (!merged.imageModel && merged.geminiImageModel) {
+    merged.imageModel = merged.geminiImageModel;
+  }
+
+  return merged;
 }
 
 async function saveSettings(payload) {
   const next = sanitizeSettings(payload);
+  if ("promptApiKey" in next) {
+    next.geminiApiKey = next.promptApiKey;
+  }
+  if ("promptModel" in next) {
+    next.geminiTextModel = next.promptModel;
+  }
+  if ("imageModel" in next) {
+    next.geminiImageModel = next.imageModel;
+  }
   await chrome.storage.local.set(next);
   return getSettings();
 }
@@ -101,14 +133,14 @@ async function analyzeImage(payload) {
     });
   }
 
-  ensureDirectApiKey(settings);
+  ensurePromptApiKey(settings);
 
   const imagePart = await fetchImageAsInlineData(imageUrl);
   const prompt = buildAnalyzePrompt(payload);
 
   const response = await callGeminiGenerateContent({
-    apiKey: settings.geminiApiKey,
-    model: settings.geminiTextModel,
+    apiKey: settings.promptApiKey,
+    model: settings.promptModel,
     contents: [
       {
         parts: [
@@ -153,6 +185,10 @@ async function generateImage(payload) {
   const prompt = String(payload.prompt || "").trim();
   const shouldOpenViewer = Boolean(payload.openViewer);
 
+  if (!settings.imageGenerationEnabled) {
+    throw new Error("生图功能当前已关闭。");
+  }
+
   if (!prompt) {
     throw new Error("Missing prompt for generation.");
   }
@@ -171,17 +207,17 @@ async function generateImage(payload) {
     return { ...result, ...viewer };
   }
 
-  ensureDirectApiKey(settings);
+  ensureImageApiKey(settings);
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      settings.geminiImageModel
+      settings.imageModel
     )}:predict`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": settings.geminiApiKey
+        "x-goog-api-key": settings.imageApiKey
       },
       body: JSON.stringify({
         instances: [{ prompt }],
@@ -208,7 +244,7 @@ async function generateImage(payload) {
   return {
     images,
     provider: settings.provider,
-    model: settings.geminiImageModel,
+    model: settings.imageModel,
     ...viewer
   };
 }
@@ -223,9 +259,15 @@ async function openOptionsPage() {
   return { opened: true };
 }
 
-function ensureDirectApiKey(settings) {
-  if (!settings.geminiApiKey) {
-    throw new Error("Gemini API key is not configured. Open the extension options page first.");
+function ensurePromptApiKey(settings) {
+  if (!settings.promptApiKey) {
+    throw new Error("识别图片模型 API Key 尚未配置，请先打开设置页。");
+  }
+}
+
+function ensureImageApiKey(settings) {
+  if (!settings.imageApiKey) {
+    throw new Error("生图模型 API Key 尚未配置，请先打开设置页。");
   }
 }
 

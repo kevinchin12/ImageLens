@@ -1,6 +1,8 @@
 const form = document.getElementById("settings-form");
 const statusEl = document.getElementById("status");
 const docButton = document.getElementById("open-doc");
+const imageGenerationEnabledField = document.querySelector('[name="imageGenerationEnabled"]');
+const imageSettingsGroup = document.getElementById("image-settings-group");
 
 init();
 
@@ -21,9 +23,11 @@ form.addEventListener("submit", async (event) => {
   const payload = {
     provider: "gemini",
     apiMode: "direct",
-    geminiApiKey: formData.get("geminiApiKey"),
-    geminiTextModel: formData.get("geminiTextModel"),
-    geminiImageModel: formData.get("geminiImageModel"),
+    promptApiKey: formData.get("promptApiKey"),
+    promptModel: formData.get("promptModel"),
+    imageGenerationEnabled: getField("imageGenerationEnabled")?.checked || false,
+    imageApiKey: formData.get("imageApiKey"),
+    imageModel: formData.get("imageModel"),
     customProxyUrl: "",
     customProxyToken: "",
     aspectRatio: formData.get("aspectRatio"),
@@ -40,6 +44,8 @@ form.addEventListener("submit", async (event) => {
     statusEl.textContent = error.message || "保存失败。";
   }
 });
+
+imageGenerationEnabledField?.addEventListener("change", syncImageSettingsVisibility);
 
 docButton.addEventListener("click", () => {
   chrome.tabs.create({
@@ -59,10 +65,17 @@ function hydrateForm(settings) {
 
     field.value = value;
   }
+
+  syncImageSettingsVisibility();
 }
 
 function getField(name) {
   return document.querySelector(`[name="${CSS.escape(name)}"]`);
+}
+
+function syncImageSettingsVisibility() {
+  const enabled = Boolean(imageGenerationEnabledField?.checked);
+  imageSettingsGroup?.classList.toggle("is-hidden", !enabled);
 }
 
 async function sendMessage(message) {

@@ -18,59 +18,80 @@
 
       <section class="grid">
         <form id="settings-form" class="glass card">
-          <div class="section-head">
-            <h2>基础设置</h2>
-            <p>当前默认接入 Gemini，由用户自己填写 API Key 后使用。</p>
-          </div>
-
-          <label class="field">
-            <span>API Key</span>
-            <input name="geminiApiKey" type="password" placeholder="AIza..." autocomplete="off" />
-            <small>只保存在本地 `chrome.storage.local`，不会写入代码仓库。</small>
-          </label>
-
-          <label class="field">
-            <span>提示词模型</span>
-            <input name="geminiTextModel" type="text" placeholder="gemini-2.5-flash" />
-          </label>
-
-          <label class="field">
-            <span>生图模型</span>
-            <input name="geminiImageModel" type="text" placeholder="gemini-3.1-flash-image-preview" />
-            <small>不同账号、地区或套餐的可用模型可能不同。</small>
-          </label>
-
-          <details class="advanced glass-subtle">
-            <summary>高级设置</summary>
-
-            <div class="advanced-body">
-              <label class="field toggle">
-                <span>打开面板后自动识别</span>
-                <input name="autoAnalyze" form="settings-form" type="checkbox" />
-              </label>
-
-              <label class="field">
-                <span>默认长宽比</span>
-                <select name="aspectRatio" form="settings-form">
-                  <option value="1:1">1:1</option>
-                  <option value="16:9">16:9</option>
-                  <option value="9:16">9:16</option>
-                  <option value="4:3">4:3</option>
-                  <option value="3:4">3:4</option>
-                </select>
-              </label>
-
-              <label class="field">
-                <span>默认出图张数</span>
-                <select name="imageCount" form="settings-form">
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                </select>
-              </label>
+          <section class="field-group">
+            <div class="section-head">
+              <h2>提示词识别</h2>
+              <p>用于分析网页图片并生成提示词。</p>
             </div>
-          </details>
+
+            <label class="field">
+              <span>识别图片模型 API Key</span>
+              <input name="promptApiKey" type="password" placeholder="AIza..." autocomplete="off" />
+              <small>只保存在本地 `chrome.storage.local`，不会写入代码仓库。</small>
+            </label>
+
+            <label class="field">
+              <span>识别图片模型</span>
+              <input name="promptModel" type="text" placeholder="gemini-2.5-flash" />
+            </label>
+
+            <label class="field toggle">
+              <span>打开面板后自动识别</span>
+              <input name="autoAnalyze" form="settings-form" type="checkbox" />
+            </label>
+          </section>
+
+          <section class="field-group">
+            <div class="section-head">
+              <h2>生图</h2>
+              <p>可选功能。关闭后，插件主界面不再显示生图区域。</p>
+            </div>
+
+            <label class="field toggle">
+              <span>开启生图功能</span>
+              <input name="imageGenerationEnabled" form="settings-form" type="checkbox" />
+            </label>
+
+            <div id="image-settings-group" class="field-stack">
+              <label class="field">
+                <span>生图模型 API Key</span>
+                <input name="imageApiKey" type="password" placeholder="AIza..." autocomplete="off" />
+              </label>
+
+              <label class="field">
+                <span>生图模型</span>
+                <input name="imageModel" type="text" placeholder="gemini-3.1-flash-image-preview" />
+                <small>不同账号、地区或套餐的可用模型可能不同。</small>
+              </label>
+
+              <details class="advanced glass-subtle">
+                <summary>生图高级设置</summary>
+
+                <div class="advanced-body">
+                  <label class="field">
+                    <span>默认长宽比</span>
+                    <select name="aspectRatio" form="settings-form">
+                      <option value="1:1">1:1</option>
+                      <option value="16:9">16:9</option>
+                      <option value="9:16">9:16</option>
+                      <option value="4:3">4:3</option>
+                      <option value="3:4">3:4</option>
+                    </select>
+                  </label>
+
+                  <label class="field">
+                    <span>默认出图张数</span>
+                    <select name="imageCount" form="settings-form">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                    </select>
+                  </label>
+                </div>
+              </details>
+            </div>
+          </section>
 
           <div class="actions">
             <button class="primary" type="submit">保存设置</button>
