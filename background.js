@@ -15,6 +15,8 @@ const DEFAULT_SETTINGS = {
   aspectRatio: "1:1",
   imageCount: 1
 };
+const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const TEMP_IMAGE_MODEL = "imagen-4.0-generate-001";
 
 const VIEWER_DB_NAME = "prompt-glass-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
@@ -78,6 +80,21 @@ async function getSettings() {
 
   if (!merged.imageModel && merged.geminiImageModel) {
     merged.imageModel = merged.geminiImageModel;
+  }
+
+  // Migrate the temporary Imagen fallback back to the Gemini Nano Banana 2
+  // default, now that image generation uses generateContent.
+  const updates = {};
+  if (merged.imageModel === TEMP_IMAGE_MODEL) {
+    merged.imageModel = DEFAULT_IMAGE_MODEL;
+    updates.imageModel = DEFAULT_IMAGE_MODEL;
+  }
+  if (merged.geminiImageModel === TEMP_IMAGE_MODEL) {
+    merged.geminiImageModel = DEFAULT_IMAGE_MODEL;
+    updates.geminiImageModel = DEFAULT_IMAGE_MODEL;
+  }
+  if (Object.keys(updates).length > 0) {
+    await chrome.storage.local.set(updates);
   }
 
   return merged;
@@ -209,28 +226,22 @@ async function generateImage(payload) {
 
   ensureImageApiKey(settings);
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      settings.imageModel
-    )}:predict`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": settings.imageApiKey
-      },
-      body: JSON.stringify({
-        instances: [{ prompt }],
-        parameters: {
-          sampleCount: clampImageCount(payload.count || settings.imageCount || 1),
-          aspectRatio: payload.aspectRatio || settings.aspectRatio || "1:1"
-        }
-      })
+  const data = await callGeminiGenerateContent({
+    apiKey: settings.imageApiKey,
+    model: settings.imageModel,
+    contents: [
+      {
+        parts: [{ text: prompt }]
+      }
+    ],
+    generationConfig: {
+      responseModalities: ["Image"],
+      imageConfig: {
+        aspectRatio: payload.aspectRatio || settings.aspectRatio || "1:1"
+      }
     }
-  );
-
-  const data = await parseApiResponse(response);
-  const images = extractImagesFromImagen(data);
+  });
+  const images = extractImagesFromGemini(data);
 
   if (images.length === 0) {
     throw new Error("Image generation returned no images.");
@@ -294,7 +305,7 @@ async function callProxy(settings, path, payload) {
   return parseApiResponse(response);
 }
 
-async function callGeminiGenerateContent({ apiKey, model, contents }) {
+async function callGeminiGenerateContent({ apiKey, model, contents, generationConfig }) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       model
@@ -305,7 +316,10 @@ async function callGeminiGenerateContent({ apiKey, model, contents }) {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey
       },
-      body: JSON.stringify({ contents })
+      body: JSON.stringify({
+        contents,
+        ...(generationConfig ? { generationConfig } : {})
+      })
     }
   );
 
@@ -965,14 +979,15 @@ function guessMimeType(url) {
   return "image/jpeg";
 }
 
-function extractImagesFromImagen(data) {
-  const predictions = Array.isArray(data?.predictions) ? data.predictions : [];
-  return predictions
-    .map((prediction) => {
-      const raw = prediction?.bytesBase64Encoded || prediction?.image?.bytesBase64Encoded;
+function extractImagesFromGemini(data) {
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+  return candidates
+    .flatMap((candidate) => candidate?.content?.parts || [])
+    .map((part) => {
+      const raw = part?.inlineData?.data || part?.inline_data?.data;
       if (!raw) return null;
       return {
-        mimeType: prediction?.mimeType || prediction?.image?.mimeType || "image/png",
+        mimeType: part?.inlineData?.mimeType || part?.inline_data?.mime_type || "image/png",
         base64Data: raw
       };
     })

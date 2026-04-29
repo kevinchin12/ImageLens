@@ -7,6 +7,11 @@ const imageSettingsGroup = document.getElementById("image-settings-group");
 init();
 
 async function init() {
+  if (!hasExtensionRuntime()) {
+    setStandaloneMode();
+    return;
+  }
+
   try {
     const settings = await sendMessage({ type: "get-settings" });
     hydrateForm(settings);
@@ -18,6 +23,11 @@ async function init() {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+
+  if (!hasExtensionRuntime()) {
+    statusEl.textContent = "请从 Chrome 扩展的设置页打开，不要直接打开本地 options.html 文件。";
+    return;
+  }
 
   const formData = new FormData(form);
   const payload = {
@@ -48,9 +58,14 @@ form.addEventListener("submit", async (event) => {
 imageGenerationEnabledField?.addEventListener("change", syncImageSettingsVisibility);
 
 docButton.addEventListener("click", () => {
-  chrome.tabs.create({
-    url: "https://ai.google.dev/gemini-api/docs/image-generation"
-  });
+  if (chrome?.tabs?.create) {
+    chrome.tabs.create({
+      url: "https://ai.google.dev/gemini-api/docs/image-generation"
+    });
+    return;
+  }
+
+  window.open("https://ai.google.dev/gemini-api/docs/image-generation", "_blank", "noopener");
 });
 
 function hydrateForm(settings) {
@@ -76,6 +91,17 @@ function getField(name) {
 function syncImageSettingsVisibility() {
   const enabled = Boolean(imageGenerationEnabledField?.checked);
   imageSettingsGroup?.classList.toggle("is-hidden", !enabled);
+}
+
+function hasExtensionRuntime() {
+  return Boolean(globalThis.chrome?.runtime?.id && globalThis.chrome?.runtime?.sendMessage);
+}
+
+function setStandaloneMode() {
+  for (const field of form.querySelectorAll("input, select, button[type='submit']")) {
+    field.disabled = true;
+  }
+  statusEl.textContent = "当前页面是本地预览。请到 chrome://extensions 打开“图透镜 Image Lens”的扩展设置页进行配置。";
 }
 
 async function sendMessage(message) {
