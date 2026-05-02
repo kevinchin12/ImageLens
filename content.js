@@ -52,7 +52,6 @@ panel.innerHTML = `
       </div>
 
       <textarea class="pg-textarea" id="pg-prompt-input" placeholder="这里会显示识别后的提示词，你可以直接修改。"></textarea>
-
       <div class="pg-meta">
         <span id="pg-status">就绪</span>
         <span id="pg-char-count">0 字</span>
