@@ -48,10 +48,14 @@ panel.innerHTML = `
           <button class="pg-chip is-active" id="pg-detail-short" type="button">精简版</button>
           <button class="pg-chip" id="pg-detail-full" type="button">完整版</button>
           <button class="pg-chip" id="pg-toggle-translation" type="button">翻译</button>
+          <button class="pg-chip" id="pg-toggle-structure" type="button">结构</button>
         </div>
       </div>
 
       <textarea class="pg-textarea" id="pg-prompt-input" placeholder="这里会显示识别后的提示词，你可以直接修改。"></textarea>
+      <div class="pg-structure pg-hidden" id="pg-structure">
+        <div class="pg-structure-grid" id="pg-structure-grid"></div>
+      </div>
       <div class="pg-meta">
         <span id="pg-status">就绪</span>
         <span id="pg-char-count">0 字</span>
@@ -104,6 +108,9 @@ const els = {
   detailShort: panel.querySelector("#pg-detail-short"),
   detailFull: panel.querySelector("#pg-detail-full"),
   toggleTranslation: panel.querySelector("#pg-toggle-translation"),
+  toggleStructure: panel.querySelector("#pg-toggle-structure"),
+  structure: panel.querySelector("#pg-structure"),
+  structureGrid: panel.querySelector("#pg-structure-grid"),
   generateSection: panel.querySelector("#pg-generate-section"),
   ratioSelect: panel.querySelector("#pg-ratio-select"),
   inlinePreview: panel.querySelector("#pg-inline-preview"),
@@ -138,7 +145,10 @@ function createEmptyPanelData() {
         en: "",
         zh: ""
       }
-    }
+    },
+    structuredPrompt: null,
+    analysis: null,
+    structureOpen: false
   };
 }
 
@@ -168,6 +178,7 @@ function bindEvents() {
   els.detailShort.addEventListener("click", () => switchDetail("short"));
   els.detailFull.addEventListener("click", () => switchDetail("full"));
   els.toggleTranslation.addEventListener("click", togglePromptLanguage);
+  els.toggleStructure.addEventListener("click", toggleStructureView);
   els.analyze.addEventListener("click", () => analyzeCurrentImage({ force: true }));
 
   els.ratioSelect.addEventListener("change", () => {
@@ -327,6 +338,9 @@ async function analyzeCurrentImage({ force }) {
       detail: state.panelData.detail || "short",
       language: state.panelData.language || "zh",
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
+      structuredPrompt: result.structuredPrompt || null,
+      analysis: result.analysis || null,
+      structureOpen: state.panelData.structureOpen || false,
       prompts: {
         short: {
           en: result.enPromptShort || "",
@@ -353,6 +367,7 @@ function togglePromptLanguage() {
   const current = state.panelData.language || "zh";
   state.panelData.language = current === "en" ? "zh" : "en";
   syncPromptControls();
+  renderStructureView();
   persistPanelImageCache();
 }
 
@@ -362,6 +377,9 @@ function hydratePanelData(data) {
     detail: data.detail || "short",
     language: data.language || data.languageByDetail?.[data.detail || "short"] || "zh",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
+    structuredPrompt: data.structuredPrompt || null,
+    analysis: data.analysis || null,
+    structureOpen: Boolean(data.structureOpen),
     prompts: {
       short: normalizePromptPair(data.prompts?.short),
       full: normalizePromptPair(data.prompts?.full)
@@ -372,6 +390,7 @@ function hydratePanelData(data) {
   renderRatioSelect();
   syncGenerationVisibility();
   syncPromptControls();
+  renderStructureView();
   setStatus("识别完成，可直接编辑。", "success");
 }
 
@@ -379,8 +398,17 @@ function syncPromptControls() {
   els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
   els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
   els.toggleTranslation.textContent = getCurrentLanguage() === "zh" ? "查看英文" : "查看中文";
+  els.toggleStructure.textContent = state.panelData.structureOpen ? "隐藏结构" : "结构";
+  els.toggleStructure.classList.toggle("is-active", state.panelData.structureOpen);
   els.input.value = getCurrentPrompt();
   updateMeta();
+}
+
+function toggleStructureView() {
+  state.panelData.structureOpen = !state.panelData.structureOpen;
+  syncPromptControls();
+  renderStructureView();
+  persistPanelImageCache();
 }
 
 function getCurrentPrompt() {
@@ -405,6 +433,123 @@ function normalizePromptPair(value) {
     en: "",
     zh: String(value || "").trim()
   };
+}
+
+function renderStructureView() {
+  const entries = getStructureEntries();
+  const visible = state.panelData.structureOpen && entries.length > 0;
+  els.structure.classList.toggle("pg-hidden", !visible);
+
+  if (!visible) {
+    els.structureGrid.innerHTML = "";
+    return;
+  }
+
+  els.structureGrid.innerHTML = entries
+    .map(
+      (entry) => `
+        <div class="pg-structure-row">
+          <span class="pg-structure-label">${escapeHtml(entry.label)}</span>
+          <p class="pg-structure-value">${escapeHtml(entry.value)}</p>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function getStructureEntries() {
+  const language = getCurrentLanguage();
+  const prompt = language === "en" ? state.panelData.structuredPrompt?.enFull : state.panelData.structuredPrompt?.zhFull;
+  const entries = parseStructuredPrompt(prompt);
+  if (entries.length >= 6 && (language === "en" || entriesHaveChinese(entries))) return orderStructureEntries(entries);
+
+  const fullPrompt = state.panelData.prompts.full?.[language] || "";
+  const labeledEntries = parseStructuredPrompt(fullPrompt);
+  if (labeledEntries.length >= 6 && (language === "en" || entriesHaveChinese(labeledEntries))) {
+    return orderStructureEntries(labeledEntries);
+  }
+
+  const analysisEntries = buildStructureEntriesFromAnalysis(state.panelData.analysis);
+  if (language === "zh" && !entriesHaveChinese(analysisEntries)) return [];
+  return analysisEntries;
+}
+
+function parseStructuredPrompt(prompt) {
+  return String(prompt || "")
+    .split(/[;；]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const match = part.match(/^([^:：]+)\s*[:：]\s*(.+)$/);
+      if (!match) return null;
+
+      const label = normalizeStructureLabel(match[1]);
+      const value = match[2].trim();
+      return label && value ? { label, value } : null;
+    })
+    .filter(Boolean);
+}
+
+function normalizeStructureLabel(label) {
+  const rawLabel = String(label || "").trim();
+  const normalized = rawLabel.toLowerCase().replace(/\s+/g, "");
+
+  if (/^subject|主体/.test(normalized)) return "主体";
+  if (/^style|风格/.test(normalized)) return "风格";
+  if (/^lighting|光线|光影/.test(normalized)) return "光线";
+  if (/^camera|镜头/.test(normalized)) return "镜头";
+  if (/^environment|环境/.test(normalized)) return "环境";
+  if (/^material|材质/.test(normalized)) return "材质";
+  if (/^composition|构图/.test(normalized)) return "构图";
+  if (/^rendering|渲染/.test(normalized)) return "渲染";
+  return "";
+}
+
+function orderStructureEntries(entries) {
+  const labelOrder = ["主体", "风格", "光线", "镜头", "环境", "材质", "构图", "渲染"];
+  const entryMap = new Map();
+
+  for (const entry of entries) {
+    if (!entryMap.has(entry.label)) entryMap.set(entry.label, entry);
+  }
+
+  return labelOrder.map((label) => entryMap.get(label)).filter(Boolean);
+}
+
+function entriesHaveChinese(entries) {
+  return entries.some((entry) => /[\u4e00-\u9fff]/.test(entry.value));
+}
+
+function buildStructureEntriesFromAnalysis(analysis) {
+  if (!analysis || typeof analysis !== "object") return [];
+
+  const rows = [
+    ["主体", joinValues([analysis.subject?.main, ...(analysis.subject?.attributes || []), analysis.subject?.action])],
+    ["风格", joinValues([analysis.style?.medium, analysis.style?.genre, analysis.style?.mood, analysis.style?.referenceLook])],
+    ["光线", joinValues([analysis.lighting?.direction, analysis.lighting?.quality, analysis.lighting?.effect, analysis.lighting?.timeOfDay])],
+    ["镜头", joinValues([analysis.camera?.focalLength, analysis.camera?.aperture, analysis.camera?.angle, analysis.camera?.shotType, analysis.camera?.depthOfField])],
+    ["环境", joinValues([analysis.environment?.sceneType, analysis.environment?.backgroundMaterial, analysis.environment?.spatialRelation])],
+    ["材质", joinValues([analysis.material?.surface, analysis.material?.microDetail, ...(analysis.material?.opticalProperties || [])])],
+    ["构图", joinValues([analysis.composition?.layout, analysis.composition?.subjectPlacement, analysis.composition?.foreground, analysis.composition?.background, analysis.composition?.leadingLines, analysis.composition?.symmetry])],
+    ["渲染", joinValues([analysis.rendering?.colorGrade, ...(analysis.rendering?.deviceLook || []), ...(analysis.rendering?.priorityTerms || [])])]
+  ];
+
+  return rows
+    .map(([label, value]) => ({ label, value }))
+    .filter((entry) => entry.value);
+}
+
+function joinValues(values) {
+  return values.filter(Boolean).join("，");
+}
+
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function generateFromCurrentPrompt() {

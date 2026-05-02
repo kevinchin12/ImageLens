@@ -184,6 +184,7 @@ async function analyzeImage(payload) {
   return {
     title: calibrated.title,
     analysis: calibrated.analysis,
+    structuredPrompt: calibrated.structuredPrompt,
     keywords: calibrated.keywords,
     drafts: calibrated.drafts,
     displayPrompts: calibrated.displayPrompts,
@@ -539,11 +540,67 @@ function normalizeStructuredPrompt(input) {
   const source = isPlainObject(input) ? input : {};
 
   return {
-    enFull: normalizeEnglishPrompt(source.enFull || "", "full"),
+    enFull: normalizeStructuredPromptText(source.enFull || "", "en"),
     enShort: normalizeEnglishPrompt(source.enShort || "", "short"),
-    zhFull: normalizeChinesePrompt(source.zhFull || "", "full"),
+    zhFull: normalizeStructuredPromptText(source.zhFull || "", "zh"),
     zhShort: normalizeChinesePrompt(source.zhShort || "", "short")
   };
+}
+
+function normalizeStructuredPromptText(text, language) {
+  const orderedLabels = [
+    ["subject", "Subject", "主体"],
+    ["style", "Style", "风格"],
+    ["lighting", "Lighting", "光线"],
+    ["camera", "Camera", "镜头"],
+    ["environment", "Environment", "环境"],
+    ["material", "Material", "材质"],
+    ["composition", "Composition", "构图"],
+    ["rendering", "Rendering", "渲染"]
+  ];
+  const sections = new Map();
+
+  String(text || "")
+    .split(/[;；]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      const match = part.match(/^([^:：]+)\s*[:：]\s*(.+)$/);
+      if (!match) return;
+
+      const key = normalizeStructuredLabelKey(match[1]);
+      if (!key || sections.has(key)) return;
+
+      const value =
+        language === "zh"
+          ? normalizeChinesePrompt(match[2], "full")
+          : normalizeEnglishPrompt(match[2], "full");
+      if (value) sections.set(key, value);
+    });
+
+  if (sections.size < 6) {
+    return language === "zh" ? normalizeChinesePrompt(text, "full") : normalizeEnglishPrompt(text, "full");
+  }
+
+  const separator = language === "zh" ? "；" : "; ";
+  return orderedLabels
+    .filter(([key]) => sections.has(key))
+    .map(([key, enLabel, zhLabel]) => `${language === "zh" ? zhLabel : enLabel}${language === "zh" ? "：" : ": "}${sections.get(key)}`)
+    .join(separator);
+}
+
+function normalizeStructuredLabelKey(label) {
+  const normalized = String(label || "").trim().toLowerCase().replace(/\s+/g, "");
+
+  if (/^subject|主体/.test(normalized)) return "subject";
+  if (/^style|风格/.test(normalized)) return "style";
+  if (/^lighting|光线|光影/.test(normalized)) return "lighting";
+  if (/^camera|镜头/.test(normalized)) return "camera";
+  if (/^environment|环境/.test(normalized)) return "environment";
+  if (/^material|材质/.test(normalized)) return "material";
+  if (/^composition|构图/.test(normalized)) return "composition";
+  if (/^rendering|渲染/.test(normalized)) return "rendering";
+  return "";
 }
 
 function parseStructuredPromptSections(enFullPrompt) {
@@ -663,9 +720,9 @@ function stripPromptSectionLabels(prompt) {
     .map((part) =>
       part
         .trim()
-        .replace(/^(?:Subject|Style|Lighting|Camera|Environment|Material|Composition|Rendering)\s*[:：]?\s*/i, "")
+        .replace(/^(?:Subject|Style|Lighting|Camera|Environment|Material|Composition|Rendering)\s*[:：]\s*/i, "")
         .replace(
-          /^(?:主体(?:描述|内容)?|风格(?:与媒介|媒介|类型)?|光(?:线|影)?(?:设置|布局)?|镜头(?:语言|参数)?|环境(?:空间)?|材质(?:细节|纹理)?|构图(?:逻辑|关系)?|渲染(?:特征|质感)?)\s*[：:]?\s*/,
+          /^(?:主体(?:描述|内容)?|风格(?:与媒介|媒介|类型)?|光(?:线|影)?(?:设置|布局)?|镜头(?:语言|参数)?|环境(?:空间)?|材质(?:细节|纹理)?|构图(?:逻辑|关系)?|渲染(?:特征|质感)?)\s*[：:]\s*/,
           ""
         )
         .trim()
@@ -1308,7 +1365,7 @@ function normalizeChinesePrompt(text, detail) {
     .replace(/\b([A-Za-z])\s+([A-Za-z])\b/g, "$1$2")
     .replace(/\b([A-Za-z])\b(?=版)/g, "$1")
     .replace(
-      /\b(?:Subject|Style|Lighting|Camera|Environment|Material|Composition|Rendering)\s*[:：]?\s*/gi,
+      /\b(?:Subject|Style|Lighting|Camera|Environment|Material|Composition|Rendering)\s*[:：]\s*/gi,
       ""
     )
     .replace(
