@@ -2,12 +2,12 @@ const DEFAULT_SETTINGS = {
   provider: "gemini",
   apiMode: "direct",
   promptApiKey: "",
-  promptModel: "gemini-2.5-flash",
+  promptModel: "gemini-3.1-pro-preview",
   imageGenerationEnabled: true,
   imageApiKey: "",
   imageModel: "gemini-3.1-flash-image-preview",
   geminiApiKey: "",
-  geminiTextModel: "gemini-2.5-flash",
+  geminiTextModel: "gemini-3.1-pro-preview",
   geminiImageModel: "gemini-3.1-flash-image-preview",
   customProxyUrl: "",
   customProxyToken: "",
@@ -15,6 +15,8 @@ const DEFAULT_SETTINGS = {
   aspectRatio: "1:1",
   imageCount: 1
 };
+const DEFAULT_PROMPT_MODEL = "gemini-3.1-pro-preview";
+const LEGACY_PROMPT_MODEL = "gemini-2.5-flash";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const TEMP_IMAGE_MODEL = "imagen-4.0-generate-001";
 
@@ -85,6 +87,14 @@ async function getSettings() {
   // Migrate the temporary Imagen fallback back to the Gemini Nano Banana 2
   // default, now that image generation uses generateContent.
   const updates = {};
+  if (merged.promptModel === LEGACY_PROMPT_MODEL) {
+    merged.promptModel = DEFAULT_PROMPT_MODEL;
+    updates.promptModel = DEFAULT_PROMPT_MODEL;
+  }
+  if (merged.geminiTextModel === LEGACY_PROMPT_MODEL) {
+    merged.geminiTextModel = DEFAULT_PROMPT_MODEL;
+    updates.geminiTextModel = DEFAULT_PROMPT_MODEL;
+  }
   if (merged.imageModel === TEMP_IMAGE_MODEL) {
     merged.imageModel = DEFAULT_IMAGE_MODEL;
     updates.imageModel = DEFAULT_IMAGE_MODEL;

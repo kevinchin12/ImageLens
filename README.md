@@ -22,7 +22,7 @@
 
 当前版本默认使用 Gemini：
 
-- 图片识别模型：`gemini-2.5-flash`
+- 图片识别模型：`gemini-3.1-pro-preview`
 - 图片生成模型：`gemini-3.1-flash-image-preview`
 
 不同账号、地区、套餐或 API 版本可能支持不同模型。如果遇到模型不可用，请到插件选项页修改模型名称，或参考 Gemini 官方文档确认当前可用模型。
