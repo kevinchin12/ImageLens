@@ -48,7 +48,7 @@ panel.innerHTML = `
           <button class="pg-chip is-active" id="pg-detail-short" type="button">精简版</button>
           <button class="pg-chip" id="pg-detail-full" type="button">完整版</button>
           <button class="pg-chip" id="pg-toggle-translation" type="button">翻译</button>
-          <button class="pg-chip" id="pg-toggle-structure" type="button">结构</button>
+          <button class="pg-chip" id="pg-toggle-structure" type="button">查看结构</button>
         </div>
       </div>
 
@@ -398,7 +398,7 @@ function syncPromptControls() {
   els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
   els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
   els.toggleTranslation.textContent = getCurrentLanguage() === "zh" ? "查看英文" : "查看中文";
-  els.toggleStructure.textContent = state.panelData.structureOpen ? "隐藏结构" : "结构";
+  els.toggleStructure.textContent = state.panelData.structureOpen ? "隐藏结构" : "查看结构";
   els.toggleStructure.classList.toggle("is-active", state.panelData.structureOpen);
   els.input.value = getCurrentPrompt();
   updateMeta();
