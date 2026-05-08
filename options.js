@@ -40,8 +40,6 @@ form.addEventListener("submit", async (event) => {
     imageModel: formData.get("imageModel"),
     customProxyUrl: "",
     customProxyToken: "",
-    aspectRatio: formData.get("aspectRatio"),
-    imageCount: Number(formData.get("imageCount")),
     autoAnalyze: getField("autoAnalyze")?.checked || false
   };
 

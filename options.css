@@ -182,43 +182,6 @@ input::placeholder {
   gap: 10px;
 }
 
-.advanced {
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
-    rgba(255, 255, 255, 0.02);
-}
-
-.advanced summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 16px 18px;
-  font-weight: 600;
-  user-select: none;
-}
-
-.advanced summary::-webkit-details-marker {
-  display: none;
-}
-
-.advanced summary::after {
-  content: "展开";
-  float: right;
-  color: var(--text-soft);
-  font-weight: 500;
-}
-
-.advanced[open] summary::after {
-  content: "收起";
-}
-
-.advanced-body {
-  display: grid;
-  gap: 18px;
-  padding: 0 18px 18px;
-}
-
 button {
   min-height: 46px;
   padding: 0 16px;
