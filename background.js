@@ -371,7 +371,54 @@ function parseLooseJson(rawText) {
   const candidate = fenced ? fenced[1] : rawText;
   const jsonText = extractFirstJsonObject(candidate);
 
-  return JSON.parse(jsonText);
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    const repaired = repairLooseJson(jsonText);
+    if (repaired !== jsonText) {
+      return JSON.parse(repaired);
+    }
+    throw error;
+  }
+}
+
+function repairLooseJson(jsonText) {
+  const source = String(jsonText || "");
+  let repaired = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (escaped) {
+      repaired += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      repaired += char;
+      escaped = inString;
+      continue;
+    }
+
+    if (char === "\"") {
+      repaired += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString && char === ",") {
+      let nextIndex = index + 1;
+      while (/\s/.test(source[nextIndex] || "")) nextIndex += 1;
+      if (source[nextIndex] === "}" || source[nextIndex] === "]") continue;
+    }
+
+    repaired += char;
+  }
+
+  return repaired.trim();
 }
 
 function extractFirstJsonObject(text) {
