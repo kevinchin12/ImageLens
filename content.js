@@ -225,7 +225,14 @@ function handleInlinePreviewClick(event) {
   }
 
   if (role === "viewer") {
-    sendMessage({ type: "open-viewer" }).catch((error) => {
+    const image = state.currentJob?.images?.[index];
+    sendMessage({
+      type: "open-viewer",
+      payload: {
+        prompt: getCurrentPrompt().trim(),
+        images: image ? [image] : []
+      }
+    }).catch((error) => {
       setStatus(error.message || "打开新页面失败。", "error");
     });
   }

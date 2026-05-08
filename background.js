@@ -269,7 +269,14 @@ async function generateImage(payload) {
   };
 }
 
-async function openViewer() {
+async function openViewer(payload = {}) {
+  const images = Array.isArray(payload.images) ? payload.images : [];
+  const prompt = String(payload.prompt || "").trim();
+
+  if (images.length > 0 || prompt) {
+    await saveViewerImages(images, prompt);
+  }
+
   await openViewerTab();
   return { opened: true };
 }
