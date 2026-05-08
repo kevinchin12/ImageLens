@@ -6,6 +6,7 @@
 <img width="2214" height="1572" alt="Github封面 拷贝" src="https://github.com/user-attachments/assets/60360953-a6ee-4a3d-b029-a14ae665e938" />
 
 
+
 当前版本基于 Gemini API 实现图片识别与生图能力。插件采用自备 API Key 模式：项目不会内置、提供或托管任何 API Key，用户需要在插件选项页填写自己的 API Key 后使用。
 
 ## 功能特性
