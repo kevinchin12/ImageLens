@@ -64,6 +64,8 @@
 
 请注意：只要 API Key 填写在浏览器插件中，它就属于客户端持有。请妥善管理自己的 API Key，并根据需要在 API 平台设置额度、权限和风控规则。
 
+更完整的说明见 [PRIVACY.md](./PRIVACY.md)。
+
 ## Chrome 权限说明
 
 本插件需要以下权限：
@@ -88,6 +90,8 @@
 ├── viewer.html        # 生图结果查看页
 ├── viewer.js          # 生图结果页逻辑
 ├── viewer.css         # 生图结果页样式
+├── PRIVACY.md         # 隐私说明
+├── LICENSE            # MIT License
 └── icons/             # 插件图标
 ```
 
@@ -134,6 +138,6 @@
 
 ## License
 
-MIT License
+MIT License. See [LICENSE](./LICENSE).
 
 © 2026 嘉文钱

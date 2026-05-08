@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">图透镜 Image Lens</p>
           <h1>填写模型配置后即可开始使用</h1>
-          <p class="subtitle">当前版本采用自带密钥模式，API Key 只保存在当前浏览器本地。</p>
+          <p class="subtitle">当前版本采用自备 API Key 模式，插件不会内置或提供 API Key。</p>
         </div>
       </section>
 
@@ -56,6 +56,7 @@
               <label class="field">
                 <span>生图模型 API Key</span>
                 <input name="imageApiKey" type="password" placeholder="请填入你的 API Key" autocomplete="off" />
+                <small>如果识别和生图都使用 Gemini，可以填写同一个 API Key。</small>
               </label>
 
               <label class="field">
@@ -97,7 +98,7 @@
             <button class="primary" type="submit">保存设置</button>
             <button id="open-doc" type="button">查看文档</button>
           </div>
-          <p class="note">提示：这是一个自带密钥模式的插件，别人安装后需要填写自己的 API Key 才能使用。</p>
+          <p class="note">提示：这是一个自备 API Key 模式的插件，别人安装后需要填写自己的 API Key 才能使用。</p>
           <p id="status" class="status">读取设置中...</p>
         </form>
       </section>

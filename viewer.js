@@ -4,7 +4,7 @@ const copyPromptButton = document.getElementById("copy-prompt");
 const downloadImagesButton = document.getElementById("download-images");
 
 let currentPayload = null;
-const VIEWER_DB_NAME = "prompt-glass-db";
+const VIEWER_DB_NAME = "image-lens-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
 const VIEWER_RECORD_ID = "current";
 
@@ -37,7 +37,7 @@ downloadImagesButton.addEventListener("click", () => {
   const images = currentPayload?.images || [];
   images.forEach((image, index) => {
     const src = `data:${image.mimeType || "image/png"};base64,${image.base64Data}`;
-    triggerDownload(src, `prompt-glass-${index + 1}.png`);
+    triggerDownload(src, `image-lens-${index + 1}.png`);
   });
 });
 

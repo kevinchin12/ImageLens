@@ -20,7 +20,7 @@ const LEGACY_PROMPT_MODEL = "gemini-2.5-flash";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const TEMP_IMAGE_MODEL = "imagen-4.0-generate-001";
 
-const VIEWER_DB_NAME = "prompt-glass-db";
+const VIEWER_DB_NAME = "image-lens-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
 const VIEWER_RECORD_ID = "current";
 
@@ -38,7 +38,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message)
     .then((data) => sendResponse({ ok: true, data }))
     .catch((error) => {
-      console.error("[Prompt Glass]", error);
+      console.error("[Image Lens]", error);
       sendResponse({ ok: false, error: error.message || "Unknown error" });
     });
 

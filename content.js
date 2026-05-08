@@ -220,7 +220,7 @@ function handleInlinePreviewClick(event) {
   if (!src) return;
 
   if (role === "download") {
-    triggerDownload(src, `prompt-glass-${index + 1}.png`);
+    triggerDownload(src, `image-lens-${index + 1}.png`);
     return;
   }
 
