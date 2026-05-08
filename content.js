@@ -45,8 +45,8 @@ panel.innerHTML = `
       <div class="pg-section-head">
         <strong>提示词</strong>
         <div class="pg-chip-group">
-          <button class="pg-chip is-active" id="pg-detail-short" type="button">精简版</button>
-          <button class="pg-chip" id="pg-detail-full" type="button">完整版</button>
+          <button class="pg-chip" id="pg-detail-short" type="button">精简版</button>
+          <button class="pg-chip is-active" id="pg-detail-full" type="button">完整版</button>
           <button class="pg-chip" id="pg-toggle-translation" type="button">翻译</button>
           <button class="pg-chip" id="pg-toggle-structure" type="button">查看结构</button>
         </div>
@@ -122,7 +122,7 @@ init();
 async function init() {
   const response = await sendMessage({ type: "get-settings" });
   state.settings = response;
-  state.panelData.detail = "short";
+  state.panelData.detail = "full";
   state.panelData.aspectRatio = state.settings.aspectRatio || "1:1";
   renderRatioSelect();
   bindEvents();
@@ -133,7 +133,7 @@ async function init() {
 function createEmptyPanelData() {
   return {
     title: "",
-    detail: "short",
+    detail: "full",
     language: "zh",
     aspectRatio: "1:1",
     prompts: {
@@ -302,7 +302,7 @@ async function openPanelForImage(image) {
   }
 
   state.panelData = createEmptyPanelData();
-  state.panelData.detail = "short";
+  state.panelData.detail = "full";
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
   renderRatioSelect();
   syncGenerationVisibility();
@@ -342,7 +342,7 @@ async function analyzeCurrentImage({ force }) {
 
     const cached = {
       title: result.title || "图片提示词",
-      detail: state.panelData.detail || "short",
+      detail: state.panelData.detail || "full",
       language: state.panelData.language || "zh",
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
       structuredPrompt: result.structuredPrompt || null,
@@ -381,8 +381,8 @@ function togglePromptLanguage() {
 function hydratePanelData(data) {
   state.panelData = {
     title: data.title || "图片提示词",
-    detail: data.detail || "short",
-    language: data.language || data.languageByDetail?.[data.detail || "short"] || "zh",
+    detail: data.detail || "full",
+    language: data.language || data.languageByDetail?.[data.detail || "full"] || "zh",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     structuredPrompt: data.structuredPrompt || null,
     analysis: data.analysis || null,

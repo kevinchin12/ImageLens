@@ -749,38 +749,9 @@ function stripPromptSectionLabels(prompt) {
 }
 
 function expandChineseShortPrompt(shortPrompt, fullPrompt) {
-  const targetLength = 100;
-  const maxLength = 130;
-  let normalized = normalizeChinesePrompt(shortPrompt, "full");
-  if (countChineseCharacters(normalized) >= 88) {
-    return normalizeChinesePunctuation(normalized);
-  }
-
-  const clauses = normalizeChinesePrompt(fullPrompt, "full")
-    .split(/[，。；]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const patterns = [
-    /(主体|一个|一位|人物|产品|物体|场景|女孩|男孩|女性|男性|人像|角色)/,
-    /(摄影|插画|3D|CG|电影|胶片|写实|风格|质感|氛围)/,
-    /(光|侧光|逆光|柔光|硬光|阴影|轮廓光|自然光|棚拍|光感)/,
-    /(镜头|毫米|mm|f\/|平视|仰拍|俯拍|特写|半身|全身|景深)/,
-    /(材质|纹理|肌理|毛孔|织物|玻璃|金属|皮肤|细节|光滑)/,
-    /(构图|居中|三分法|前景|背景|层次|空间|虚化)/
-  ];
-
-  for (const pattern of patterns) {
-    const clause = clauses.find((item) => pattern.test(item) && !normalized.includes(item));
-    if (!clause) continue;
-
-    const candidate = normalized ? `${normalized}，${clause}` : clause;
-    if (countChineseCharacters(candidate) > maxLength) continue;
-    normalized = candidate;
-
-    if (countChineseCharacters(normalized) >= targetLength) break;
-  }
-
-  return normalizeChinesePunctuation(normalized);
+  const normalized = normalizeChinesePrompt(shortPrompt, "short");
+  if (normalized) return normalizeChinesePunctuation(normalized);
+  return normalizeChinesePrompt(fullPrompt, "short");
 }
 
 function countChineseCharacters(text) {
