@@ -21,8 +21,22 @@
           <section class="field-group">
             <div class="section-head">
               <h2>提示词识别</h2>
-              <p>用于分析网页图片并生成提示词。</p>
+              <p>识图服务商、URL、模型和 API Key 独立配置，可与生图自由组合。</p>
             </div>
+
+            <label class="field">
+              <span>识图服务商</span>
+              <select name="promptProvider">
+                <option value="gemini">Gemini</option>
+                <option value="openai-compatible">OpenAI Compatible</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>识图 Base URL</span>
+              <input name="promptBaseUrl" type="url" placeholder="https://generativelanguage.googleapis.com/v1beta" />
+              <small id="prompt-base-url-help">Gemini 默认使用 Google 官方 REST 地址；切到 OpenAI Compatible 时会自动带入官方 API 地址。</small>
+            </label>
 
             <label class="field">
               <span>识别图片模型 API Key</span>
@@ -33,6 +47,7 @@
             <label class="field">
               <span>识别图片模型</span>
               <input name="promptModel" type="text" placeholder="gemini-3.1-pro-preview" />
+              <small id="prompt-model-help">Gemini 例如 `gemini-3.1-pro-preview`；OpenAI 兼容默认可用 `gpt-5.5`。</small>
             </label>
 
             <label class="field toggle">
@@ -44,7 +59,7 @@
           <section class="field-group">
             <div class="section-head">
               <h2>生图</h2>
-              <p>可选功能。关闭后，插件主界面不再显示生图区域。</p>
+              <p>生图服务商、URL、模型和 API Key 独立配置，可与识图自由组合。</p>
             </div>
 
             <label class="field toggle">
@@ -54,15 +69,29 @@
 
             <div id="image-settings-group" class="field-stack">
               <label class="field">
+                <span>生图服务商</span>
+                <select name="imageProvider">
+                  <option value="gemini">Gemini</option>
+                  <option value="openai-compatible">OpenAI Compatible</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>生图 Base URL</span>
+                <input name="imageBaseUrl" type="url" placeholder="https://generativelanguage.googleapis.com/v1beta" />
+                <small id="image-base-url-help">Gemini 默认使用 Google 官方 REST 地址；切到 OpenAI Compatible 时会自动带入官方 API 地址。</small>
+              </label>
+
+              <label class="field">
                 <span>生图模型 API Key</span>
                 <input name="imageApiKey" type="password" placeholder="请填入你的 API Key" autocomplete="off" />
-                <small>如果识别和生图都使用 Gemini，可以填写同一个 API Key。</small>
+                <small>识图和生图可用同一个 Key，也可以完全分开。</small>
               </label>
 
               <label class="field">
                 <span>生图模型</span>
                 <input name="imageModel" type="text" placeholder="gemini-3.1-flash-image-preview" />
-                <small>不同账号、地区或套餐的可用模型可能不同。</small>
+                <small id="image-model-help">Gemini 例如 `gemini-3.1-flash-image-preview`；OpenAI 兼容默认可用 `gpt-image-2`。</small>
               </label>
             </div>
           </section>

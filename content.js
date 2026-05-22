@@ -331,10 +331,14 @@ async function analyzeCurrentImage({ force }) {
   }
 
   await runAction("analyze", "正在识别图片内容...", async () => {
+    const imageDataUrl = await captureImageDataUrl(state.panelImage);
+    const screenshotCrop = getImageViewportCrop(state.panelImage);
     const result = await sendMessage({
       type: "analyze-image",
       payload: {
         imageUrl,
+        imageDataUrl,
+        screenshotCrop,
         pageUrl: location.href,
         alt: state.panelImage.alt || ""
       }
@@ -686,6 +690,78 @@ function truncateMiddle(text, maxLength) {
   const head = Math.ceil(maxLength / 2) - 2;
   const tail = Math.floor(maxLength / 2) - 1;
   return `${text.slice(0, head)}...${text.slice(-tail)}`;
+}
+
+async function captureImageDataUrl(image) {
+  if (!(image instanceof HTMLImageElement)) return "";
+
+  const src = image.currentSrc || image.src || "";
+  if (src.startsWith("data:")) return src;
+
+  try {
+    if (typeof OffscreenCanvas !== "undefined") {
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      if (width > 0 && height > 0) {
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(image, 0, 0, width, height);
+          const blob = await canvas.convertToBlob({
+            type: "image/png"
+          });
+          return await blobToDataUrl(blob);
+        }
+      }
+    }
+  } catch (_error) {
+    // Cross-origin images may taint the canvas. Fallback to URL fetch in the background worker.
+  }
+
+  try {
+    const response = await fetch(src, {
+      credentials: "include"
+    });
+    if (response.ok) {
+      const blob = await response.blob();
+      return await blobToDataUrl(blob);
+    }
+  } catch (_error) {
+    // Some sites still block content-script fetches. The background worker keeps the final fallback path.
+  }
+
+  return "";
+}
+
+function getImageViewportCrop(image) {
+  if (!(image instanceof HTMLImageElement)) return null;
+
+  const rect = image.getBoundingClientRect();
+  const x = Math.max(0, rect.left);
+  const y = Math.max(0, rect.top);
+  const right = Math.min(window.innerWidth, rect.right);
+  const bottom = Math.min(window.innerHeight, rect.bottom);
+  const width = Math.max(1, right - x);
+  const height = Math.max(1, bottom - y);
+
+  if (width <= 1 || height <= 1) return null;
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    devicePixelRatio: window.devicePixelRatio || 1
+  };
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read image blob."));
+    reader.readAsDataURL(blob);
+  });
 }
 
 async function sendMessage(message) {
