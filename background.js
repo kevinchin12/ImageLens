@@ -351,6 +351,15 @@ function repairActiveProviderProfiles(settings, promptProfiles, imageProfiles) {
     if (!promptProfile.baseUrl && settings.promptBaseUrl) {
       promptProfile.baseUrl = settings.promptBaseUrl;
     }
+    if (settings.promptProvider === "gemini" && shouldResetGeminiProfileBaseUrl(promptProfile)) {
+      promptProfile.baseUrl = settings.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL;
+    }
+    if (
+      settings.promptProvider === "openai-compatible" &&
+      shouldResetOpenAIProfileBaseUrl(promptProfile)
+    ) {
+      promptProfile.baseUrl = settings.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL;
+    }
   }
 
   const imageProfile = imageProfiles?.[settings.imageProvider];
@@ -363,6 +372,15 @@ function repairActiveProviderProfiles(settings, promptProfiles, imageProfiles) {
     }
     if (!imageProfile.baseUrl && settings.imageBaseUrl) {
       imageProfile.baseUrl = settings.imageBaseUrl;
+    }
+    if (settings.imageProvider === "gemini" && shouldResetGeminiProfileBaseUrl(imageProfile)) {
+      imageProfile.baseUrl = settings.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL;
+    }
+    if (
+      settings.imageProvider === "openai-compatible" &&
+      shouldResetOpenAIProfileBaseUrl(imageProfile)
+    ) {
+      imageProfile.baseUrl = settings.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL;
     }
   }
 }
@@ -386,6 +404,40 @@ function repairGeminiLegacyProfile(settings, legacyProfiles, promptProfiles, ima
   if (imageProfiles?.gemini && !imageProfiles.gemini.apiKey && settings.geminiApiKey) {
     imageProfiles.gemini.apiKey = settings.geminiApiKey;
   }
+}
+
+function shouldResetGeminiProfileBaseUrl(profile) {
+  const model = String(profile?.model || "").trim().toLowerCase();
+  const baseUrl = String(profile?.baseUrl || "").trim().toLowerCase();
+
+  if (!model.startsWith("gemini")) return false;
+  if (!baseUrl) return true;
+  return looksLikeOpenAICompatibleBaseUrl(baseUrl) && !looksLikeGeminiBaseUrl(baseUrl);
+}
+
+function shouldResetOpenAIProfileBaseUrl(profile) {
+  const model = String(profile?.model || "").trim().toLowerCase();
+  const baseUrl = String(profile?.baseUrl || "").trim().toLowerCase();
+
+  if (!(model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4"))) {
+    return false;
+  }
+  if (!baseUrl) return true;
+  return looksLikeGeminiBaseUrl(baseUrl);
+}
+
+function looksLikeGeminiBaseUrl(baseUrl) {
+  return /generativelanguage\.googleapis\.com/.test(String(baseUrl || "").toLowerCase());
+}
+
+function looksLikeOpenAICompatibleBaseUrl(baseUrl) {
+  const normalized = String(baseUrl || "").toLowerCase();
+  return (
+    /api\.openai\.com/.test(normalized) ||
+    /openrouter\.ai/.test(normalized) ||
+    /\/api\/v1\/?$/.test(normalized) ||
+    /\/v1\/?$/.test(normalized)
+  );
 }
 
 function pickProviderProfileFields(source) {
