@@ -230,10 +230,13 @@ async function saveSettings(payload) {
   };
   const activePromptProfile = promptProviderProfiles[promptProvider];
   const activeImageProfile = imageProviderProfiles[imageProvider];
+  const geminiLegacyProfile = providerProfiles.gemini || {};
+  const openaiLegacyProfile = providerProfiles["openai-compatible"] || {};
   const next = {
     provider: promptProvider,
     promptProvider,
     imageProvider,
+    apiMode: sanitized.apiMode || current.apiMode || "direct",
     providerProfiles,
     promptProviderProfiles,
     imageProviderProfiles,
@@ -244,7 +247,14 @@ async function saveSettings(payload) {
     imageGenerationEnabled: activeImageProfile.imageGenerationEnabled,
     imageApiKey: activeImageProfile.apiKey,
     imageModel: activeImageProfile.model,
-    imageBaseUrl: activeImageProfile.baseUrl
+    imageBaseUrl: activeImageProfile.baseUrl,
+    geminiBaseUrl: geminiLegacyProfile.geminiBaseUrl || current.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL,
+    openaiBaseUrl:
+      openaiLegacyProfile.openaiBaseUrl || current.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL,
+    customProxyUrl:
+      "customProxyUrl" in sanitized ? sanitized.customProxyUrl : current.customProxyUrl || "",
+    customProxyToken:
+      "customProxyToken" in sanitized ? sanitized.customProxyToken : current.customProxyToken || ""
   };
 
   next.geminiApiKey = providerProfiles.gemini?.promptApiKey || current.geminiApiKey || "";
@@ -432,12 +442,7 @@ function looksLikeGeminiBaseUrl(baseUrl) {
 
 function looksLikeOpenAICompatibleBaseUrl(baseUrl) {
   const normalized = String(baseUrl || "").toLowerCase();
-  return (
-    /api\.openai\.com/.test(normalized) ||
-    /openrouter\.ai/.test(normalized) ||
-    /\/api\/v1\/?$/.test(normalized) ||
-    /\/v1\/?$/.test(normalized)
-  );
+  return /api\.openai\.com/.test(normalized) || /openrouter\.ai/.test(normalized);
 }
 
 function pickProviderProfileFields(source) {
