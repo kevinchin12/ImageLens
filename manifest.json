@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "图透镜 Image Lens",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Analyze webpage images and generate editable prompts for image generation.",
   "icons": {
     "16": "icons/icon-16.png",
