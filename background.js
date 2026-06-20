@@ -1,3 +1,5 @@
+import "./i18n.js";
+
 const DEFAULT_SETTINGS = {
   provider: "gemini",
   apiMode: "direct",
@@ -11,7 +13,9 @@ const DEFAULT_SETTINGS = {
   geminiImageModel: "gemini-3.1-flash-image-preview",
   customProxyUrl: "",
   customProxyToken: "",
+  uiLanguage: "auto",
   autoAnalyze: true,
+  enableChineseRecognition: true,
   aspectRatio: "1:1",
   imageCount: 1
 };
@@ -34,8 +38,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  handleMessage(message)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleMessage(message, sender)
     .then((data) => sendResponse({ ok: true, data }))
     .catch((error) => {
       console.error("[Image Lens]", error);
@@ -45,14 +49,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function handleMessage(message) {
+async function handleMessage(message, sender) {
   switch (message.type) {
     case "get-settings":
       return getSettings();
     case "save-settings":
       return saveSettings(message.payload || {});
     case "analyze-image":
-      return analyzeImage(message.payload || {});
+      return analyzeImage(message.payload || {}, sender);
     case "generate-image":
       return generateImage(message.payload || {});
     case "open-viewer":
@@ -144,11 +148,16 @@ function sanitizeSettings(payload) {
   return next;
 }
 
-async function analyzeImage(payload) {
+function getSettingsTranslator(settings) {
+  return globalThis.ImageLensI18n.createTranslator(settings?.uiLanguage || "auto");
+}
+
+async function analyzeImage(payload, sender) {
   const settings = await getSettings();
   const imageUrl = normalizeImageUrl(payload.imageUrl);
+  const imageDataUrl = normalizeImageDataUrl(payload.imageDataUrl);
 
-  if (!imageUrl) {
+  if (!imageUrl && !imageDataUrl) {
     throw new Error("Missing image URL.");
   }
 
@@ -162,8 +171,16 @@ async function analyzeImage(payload) {
 
   ensurePromptApiKey(settings);
 
-  const imagePart = await fetchImageAsInlineData(imageUrl);
-  const prompt = buildAnalyzePrompt(payload);
+  const imagePart = await fetchImageAsInlineData({
+    imageUrl,
+    imageDataUrl,
+    pageUrl: payload.pageUrl || "",
+    screenshotCrop: normalizeScreenshotCrop(payload.screenshotCrop),
+    sender
+  });
+  const prompt = buildAnalyzePrompt(payload, {
+    includeChinese: settings.enableChineseRecognition
+  });
 
   const response = await callGeminiGenerateContent({
     apiKey: settings.promptApiKey,
@@ -185,9 +202,11 @@ async function analyzeImage(payload) {
 
   const rawText = extractTextFromGemini(response);
   const parsed = parseLooseJson(rawText);
-  const calibrated = calibratePromptPayload(parsed);
+  const calibrated = calibratePromptPayload(parsed, {
+    includeChinese: settings.enableChineseRecognition
+  });
 
-  if (!calibrated.analysis?.subject?.main && !calibrated.displayPrompts?.zhShort) {
+  if (!calibrated.analysis?.subject?.main && !calibrated.displayPrompts?.enShort) {
     throw new Error("Model did not return valid structured analysis.");
   }
 
@@ -202,7 +221,7 @@ async function analyzeImage(payload) {
     enPromptFull: calibrated.displayPrompts.enFull,
     zhPromptShort: calibrated.displayPrompts.zhShort,
     zhPromptFull: calibrated.displayPrompts.zhFull,
-    sourceImageUrl: imageUrl
+    sourceImageUrl: imageUrl || imageDataUrl
   };
 }
 
@@ -210,9 +229,10 @@ async function generateImage(payload) {
   const settings = await getSettings();
   const prompt = String(payload.prompt || "").trim();
   const shouldOpenViewer = Boolean(payload.openViewer);
+  const t = getSettingsTranslator(settings).t;
 
   if (!settings.imageGenerationEnabled) {
-    throw new Error("生图功能当前已关闭。");
+    throw new Error(t("backgroundGenerationDisabled"));
   }
 
   if (!prompt) {
@@ -288,13 +308,13 @@ async function openOptionsPage() {
 
 function ensurePromptApiKey(settings) {
   if (!settings.promptApiKey) {
-    throw new Error("识别图片模型 API Key 尚未配置，请先打开设置页。");
+    throw new Error(getSettingsTranslator(settings).t("backgroundPromptApiMissing"));
   }
 }
 
 function ensureImageApiKey(settings) {
   if (!settings.imageApiKey) {
-    throw new Error("生图模型 API Key 尚未配置，请先打开设置页。");
+    throw new Error(getSettingsTranslator(settings).t("backgroundImageApiMissing"));
   }
 }
 
@@ -466,8 +486,8 @@ function extractFirstJsonObject(text) {
   return source.slice(start);
 }
 
-function buildAnalyzePrompt(payload) {
-  return [
+function buildAnalyzePrompt(payload, { includeChinese = true } = {}) {
+  const lines = [
     "角色设定：你是一位资深视觉导演与图像逆向分析师，擅长将视觉图像拆解为稳定、可编辑、可重组的结构化提示词数据。",
     "核心任务：分析上传图片，提取其核心视觉变量，输出结构化 JSON。目标不是写华丽文案，而是输出稳定、明确、可用于后续程序组装提示词的数据。",
     "总原则：优先还原原图的主体、风格、镜头语言、光线结构、材质质感、构图逻辑和空间关系；尽量填写具体、可观察、可复用的信息，不要写空泛评价。",
@@ -479,7 +499,7 @@ function buildAnalyzePrompt(payload) {
     "structuredPrompt.enFull 必须是纯英文，不能混入中文；每个段落必须写具体内容，不要只写标签。",
     "analysis 是结构化辅助数据，drafts 是附带草稿。",
     "字段要求：",
-    "1. title：12 字以内概括主题。",
+    "1. title：use a concise English title within 6 words.",
     "2. analysis.subject.main：主体核心描述。",
     "3. analysis.subject.attributes：主体显著特征数组。",
     "4. analysis.subject.action：主体动作、姿态或状态。",
@@ -493,19 +513,25 @@ function buildAnalyzePrompt(payload) {
     "12. analysis.composition：拆成 layout、subjectPlacement、foreground、background、leadingLines、symmetry。",
     "13. analysis.environment：拆成 sceneType、backgroundMaterial、spatialRelation。",
     "14. analysis.rendering：拆成 priorityTerms、deviceLook、colorGrade。",
-    "15. structuredPrompt.zhFull 必须是 structuredPrompt.enFull 的纯中文语义对应版本，也按同样顺序和分号结构输出：主体：...；风格：...；光线：...；镜头：...；环境：...；材质：...；构图：...；渲染：...",
-    "16. structuredPrompt.enShort 必须基于 structuredPrompt.enFull 精简，保留主体、风格、光线、镜头、关键材质和构图。",
-    "17. structuredPrompt.zhShort 必须基于 structuredPrompt.zhFull 精简，保留主体、风格、光线、镜头、关键材质和构图。",
-    "18. keywords：提供 6 到 12 个中文短词。",
+    "15. structuredPrompt.enShort 必须基于 structuredPrompt.enFull 精简，保留主体、风格、光线、镜头、关键材质和构图。",
+    includeChinese
+      ? "16. structuredPrompt.zhFull 必须是 structuredPrompt.enFull 的纯中文语义对应版本，也按同样顺序和分号结构输出：主体：...；风格：...；光线：...；镜头：...；环境：...；材质：...；构图：...；渲染：..."
+      : "16. structuredPrompt.zhFull 留空字符串，不要生成中文提示词。",
+    includeChinese
+      ? "17. structuredPrompt.zhShort 必须基于 structuredPrompt.zhFull 精简，保留主体、风格、光线、镜头、关键材质和构图。"
+      : "17. structuredPrompt.zhShort 留空字符串，不要生成中文提示词。",
+    includeChinese ? "18. keywords：提供 6 到 12 个中文短词。" : "18. keywords：提供 6 到 12 个英文短词。",
     "19. drafts 可复制 structuredPrompt 对应字段。",
     "20. 如果字段缺失，返回空字符串或空数组，不要编造无法观察的细节。",
     "21. 输出前先内部自检：根据 structuredPrompt.enFull 重新生成图片时，是否足以还原原图 90% 的视觉变量；如果不能，请补足缺失段落。",
     'JSON 格式：{"title":"","structuredPrompt":{"enFull":"","enShort":"","zhFull":"","zhShort":""},"analysis":{"subject":{"main":"","attributes":[],"action":""},"style":{"medium":"","genre":"","mood":"","referenceLook":""},"camera":{"focalLength":"","aperture":"","angle":"","shotType":"","depthOfField":""},"lighting":{"direction":"","quality":"","effect":"","timeOfDay":""},"material":{"surface":"","microDetail":"","opticalProperties":[]},"composition":{"layout":"","subjectPlacement":"","foreground":"","background":"","leadingLines":"","symmetry":""},"environment":{"sceneType":"","backgroundMaterial":"","spatialRelation":""},"rendering":{"priorityTerms":[],"deviceLook":[],"colorGrade":""}},"keywords":[],"drafts":{"enShort":"","enFull":"","zhShort":"","zhFull":""}}',
     `补充上下文：页面地址 ${payload.pageUrl || "unknown"}；图片 alt ${payload.alt || "none"}。`
-  ].join("\n");
+  ];
+
+  return lines.join("\n");
 }
 
-function calibratePromptPayload(parsed) {
+function calibratePromptPayload(parsed, { includeChinese = true } = {}) {
   const structuredPrompt = normalizeStructuredPrompt(parsed?.structuredPrompt);
   const promptSections = parseStructuredPromptSections(structuredPrompt.enFull);
   const analysis = fillStructuredDefaults(
@@ -513,9 +539,9 @@ function calibratePromptPayload(parsed) {
   );
   const drafts = normalizeDraftPrompts(parsed?.drafts, parsed, structuredPrompt);
   const keywords = normalizeKeywords(parsed?.keywords, analysis);
-  const displayPrompts = composeDisplayPrompts(analysis, drafts, structuredPrompt);
+  const displayPrompts = composeDisplayPrompts(analysis, drafts, structuredPrompt, { includeChinese });
 
-  return {
+  const payload = {
     title: normalizeTitle(parsed?.title, analysis),
     analysis,
     structuredPrompt,
@@ -523,6 +549,17 @@ function calibratePromptPayload(parsed) {
     drafts,
     displayPrompts
   };
+
+  if (!includeChinese) {
+    payload.structuredPrompt.zhFull = "";
+    payload.structuredPrompt.zhShort = "";
+    payload.drafts.zhFull = "";
+    payload.drafts.zhShort = "";
+    payload.displayPrompts.zhFull = "";
+    payload.displayPrompts.zhShort = "";
+  }
+
+  return payload;
 }
 
 function normalizeStructuredAnalysis(input) {
@@ -745,18 +782,13 @@ function composePromptsFromAnalysis(analysis) {
   };
 }
 
-function composeDisplayPrompts(analysis, drafts, structuredPrompt = {}) {
+function composeDisplayPrompts(analysis, drafts, structuredPrompt = {}, { includeChinese = true } = {}) {
   const composed = composePromptsFromAnalysis(analysis);
-  const zhFull = choosePrompt(structuredPrompt.zhFull || drafts.zhFull, composed.zhFull);
-  const zhShort = choosePrompt(
-    structuredPrompt.zhShort || drafts.zhShort,
-    createChineseShortFromFull(zhFull, composed.zhShort)
-  );
   const enFull = chooseEnglishPrompt(structuredPrompt.enFull || drafts.enFull, composed.enFull, "full");
 
-  return {
-    zhFull: stripPromptSectionLabels(zhFull),
-    zhShort: expandChineseShortPrompt(stripPromptSectionLabels(zhShort), zhFull),
+  const result = {
+    zhFull: "",
+    zhShort: "",
     enFull: stripPromptSectionLabels(enFull),
     enShort: stripPromptSectionLabels(
       chooseEnglishPrompt(
@@ -766,6 +798,18 @@ function composeDisplayPrompts(analysis, drafts, structuredPrompt = {}) {
       )
     )
   };
+
+  if (includeChinese) {
+    const zhFull = choosePrompt(structuredPrompt.zhFull || drafts.zhFull, composed.zhFull);
+    const zhShort = choosePrompt(
+      structuredPrompt.zhShort || drafts.zhShort,
+      createChineseShortFromFull(zhFull, composed.zhShort)
+    );
+    result.zhFull = stripPromptSectionLabels(zhFull);
+    result.zhShort = expandChineseShortPrompt(stripPromptSectionLabels(zhShort), zhFull);
+  }
+
+  return result;
 }
 
 function choosePrompt(primary, fallback = "") {
@@ -874,8 +918,8 @@ function getFallbackEnglishPrompt(detail) {
 
 function normalizeTitle(input, analysis) {
   const title = normalizeTextField(input);
-  if (title) return title.slice(0, 12);
-  return normalizeTextField(analysis?.subject?.main).slice(0, 12) || "图片提示词";
+  if (title) return title.slice(0, 48);
+  return normalizeTextField(analysis?.subject?.main).slice(0, 48) || "Image Prompt";
 }
 
 function normalizeKeywords(input, analysis) {
@@ -1502,19 +1546,49 @@ function normalizeChinesePunctuation(text) {
     .trim();
 }
 
-async function fetchImageAsInlineData(imageUrl) {
-  const response = await fetch(imageUrl);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image (${response.status}).`);
+async function fetchImageAsInlineData({ imageUrl, imageDataUrl, pageUrl, screenshotCrop, sender }) {
+  if (imageDataUrl) {
+    return parseDataUrlImage(imageDataUrl);
   }
 
-  const blob = await response.blob();
-  const buffer = await blob.arrayBuffer();
+  try {
+    const fetchOptions = {
+      credentials: "include"
+    };
+    const normalizedPageUrl = String(pageUrl || "").trim();
+    if (/^https?:\/\//i.test(normalizedPageUrl)) {
+      fetchOptions.referrer = normalizedPageUrl;
+    }
+
+    const response = await fetch(imageUrl, fetchOptions);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image (${response.status}).`);
+    }
+
+    const blob = await response.blob();
+    const buffer = await blob.arrayBuffer();
+
+    return {
+      mimeType: blob.type || guessMimeType(imageUrl),
+      data: arrayBufferToBase64(buffer)
+    };
+  } catch (error) {
+    if (screenshotCrop && sender?.tab?.windowId !== undefined) {
+      return captureVisibleTabImagePart(sender.tab.windowId, screenshotCrop);
+    }
+    throw error;
+  }
+}
+
+function parseDataUrlImage(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;,]+)?;base64,(.+)$/i);
+  if (!match) {
+    throw new Error("Unsupported inline image format.");
+  }
 
   return {
-    mimeType: blob.type || guessMimeType(imageUrl),
-    data: arrayBufferToBase64(buffer)
+    mimeType: match[1] || "image/png",
+    data: match[2]
   };
 }
 
@@ -1537,6 +1611,70 @@ function guessMimeType(url) {
   if (normalized.endsWith(".webp")) return "image/webp";
   if (normalized.endsWith(".gif")) return "image/gif";
   return "image/jpeg";
+}
+
+function normalizeImageDataUrl(value) {
+  const dataUrl = String(value || "").trim();
+  return dataUrl.startsWith("data:image/") ? dataUrl : "";
+}
+
+function normalizeScreenshotCrop(value) {
+  if (!isPlainObject(value)) return null;
+
+  const crop = {
+    x: Number(value.x),
+    y: Number(value.y),
+    width: Number(value.width),
+    height: Number(value.height),
+    devicePixelRatio: Number(value.devicePixelRatio) || 1
+  };
+
+  if (
+    !Number.isFinite(crop.x) ||
+    !Number.isFinite(crop.y) ||
+    !Number.isFinite(crop.width) ||
+    !Number.isFinite(crop.height) ||
+    crop.width <= 0 ||
+    crop.height <= 0
+  ) {
+    return null;
+  }
+
+  return crop;
+}
+
+async function captureVisibleTabImagePart(windowId, crop) {
+  const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+    format: "png"
+  });
+  return cropCapturedImage(dataUrl, crop);
+}
+
+async function cropCapturedImage(dataUrl, crop) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const bitmap = await createImageBitmap(blob);
+
+  const scale = crop.devicePixelRatio || 1;
+  const sx = Math.max(0, Math.floor(crop.x * scale));
+  const sy = Math.max(0, Math.floor(crop.y * scale));
+  const sw = Math.max(1, Math.min(bitmap.width - sx, Math.floor(crop.width * scale)));
+  const sh = Math.max(1, Math.min(bitmap.height - sy, Math.floor(crop.height * scale)));
+
+  const canvas = new OffscreenCanvas(sw, sh);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Failed to create canvas context for screenshot crop.");
+  }
+
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+  const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
+  const buffer = await croppedBlob.arrayBuffer();
+
+  return {
+    mimeType: "image/png",
+    data: arrayBufferToBase64(buffer)
+  };
 }
 
 function extractImagesFromGemini(data) {

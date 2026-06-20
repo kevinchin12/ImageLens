@@ -237,16 +237,24 @@
 
 .pg-structure-row {
   display: grid;
-  grid-template-columns: 52px 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(42px, 56px) minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
+}
+
+.pg-structure-grid[data-ui-language="en"] .pg-structure-row {
+  grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
+  gap: 16px;
 }
 
 .pg-structure-label {
   color: var(--pg-accent-2);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.55;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  word-break: break-word;
 }
 
 .pg-structure-value {
@@ -255,6 +263,17 @@
   font-size: 12px;
   line-height: 1.6;
   word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .pg-structure-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .pg-structure-label {
+    font-size: 10px;
+  }
 }
 
 .pg-meta {

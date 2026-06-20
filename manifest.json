@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "图透镜 Image Lens",
-  "version": "0.1.0",
+  "name": "Image Lens",
+  "version": "1.0.0",
   "description": "Analyze webpage images and generate editable prompts for image generation.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -9,7 +9,7 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage"],
   "host_permissions": [
     "<all_urls>",
     "https://generativelanguage.googleapis.com/*"
@@ -21,14 +21,14 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["i18n.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "图透镜 Image Lens",
+    "default_title": "Image Lens",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
