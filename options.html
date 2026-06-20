@@ -40,8 +40,27 @@
           <section class="field-group">
             <div class="section-head">
               <h2 id="analyze-section-title">Prompt Analysis</h2>
-              <p id="analyze-section-description">Analyze web images and turn them into editable prompts.</p>
+              <p id="analyze-section-description">Choose a provider, base URL, model, and API key for image analysis.</p>
             </div>
+
+            <label class="field">
+              <span id="prompt-provider-label">Analysis Provider</span>
+              <select name="promptProvider">
+                <option value="gemini">Gemini</option>
+                <option value="openai-compatible">OpenAI Compatible</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span id="prompt-base-url-label">Analysis Base URL</span>
+              <input
+                name="promptBaseUrl"
+                type="url"
+                placeholder="https://generativelanguage.googleapis.com/v1beta"
+                autocomplete="off"
+              />
+              <small id="prompt-base-url-help">Gemini uses Google's official REST base URL by default.</small>
+            </label>
 
             <label class="field">
               <span id="prompt-api-key-label">Gemini API Key for Analysis</span>
@@ -52,6 +71,7 @@
             <label class="field">
               <span id="prompt-model-label">Analysis Model</span>
               <input name="promptModel" type="text" placeholder="gemini-3.1-pro-preview" />
+              <small id="prompt-model-help">Gemini example: gemini-3.1-pro-preview.</small>
             </label>
 
             <label class="field toggle">
@@ -68,7 +88,7 @@
           <section class="field-group">
             <div class="section-head">
               <h2 id="generate-section-title">Image Generation</h2>
-              <p id="generate-section-description">Optional. When disabled, the generation area is hidden in the main panel.</p>
+              <p id="generate-section-description">Optional. Choose a provider, base URL, model, and API key for image generation.</p>
             </div>
 
             <label class="field toggle">
@@ -77,6 +97,25 @@
             </label>
 
             <div id="image-settings-group" class="field-stack">
+              <label class="field">
+                <span id="image-provider-label">Image Provider</span>
+                <select name="imageProvider">
+                  <option value="gemini">Gemini</option>
+                  <option value="openai-compatible">OpenAI Compatible</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span id="image-base-url-label">Image Base URL</span>
+                <input
+                  name="imageBaseUrl"
+                  type="url"
+                  placeholder="https://generativelanguage.googleapis.com/v1beta"
+                  autocomplete="off"
+                />
+                <small id="image-base-url-help">Gemini uses Google's official REST base URL by default.</small>
+              </label>
+
               <label class="field">
                 <span id="image-api-key-label">Gemini API Key for Image Generation</span>
                 <input name="imageApiKey" type="password" placeholder="Enter your Gemini API key" autocomplete="off" />

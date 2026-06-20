@@ -2,12 +2,18 @@ import "./i18n.js";
 
 const DEFAULT_SETTINGS = {
   provider: "gemini",
+  promptProvider: "gemini",
+  imageProvider: "gemini",
   apiMode: "direct",
   promptApiKey: "",
   promptModel: "gemini-3.1-pro-preview",
+  promptBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
   imageGenerationEnabled: true,
   imageApiKey: "",
   imageModel: "gemini-3.1-flash-image-preview",
+  imageBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  openaiBaseUrl: "https://api.openai.com/v1",
   geminiApiKey: "",
   geminiTextModel: "gemini-3.1-pro-preview",
   geminiImageModel: "gemini-3.1-flash-image-preview",
@@ -17,12 +23,27 @@ const DEFAULT_SETTINGS = {
   autoAnalyze: true,
   enableChineseRecognition: true,
   aspectRatio: "1:1",
-  imageCount: 1
+  imageCount: 1,
+  providerProfiles: {},
+  promptProviderProfiles: {},
+  imageProviderProfiles: {}
 };
 const DEFAULT_PROMPT_MODEL = "gemini-3.1-pro-preview";
 const LEGACY_PROMPT_MODEL = "gemini-2.5-flash";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const TEMP_IMAGE_MODEL = "imagen-4.0-generate-001";
+const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const OPENAI_DEFAULT_PROMPT_MODEL = "gpt-4.1-mini";
+const OPENAI_LATEST_IMAGE_MODEL = "gpt-image-2";
+const OPENAI_IMAGE_SIZE_BY_RATIO = {
+  "1:1": "1024x1024",
+  "3:4": "1024x1536",
+  "4:3": "1536x1024",
+  "9:16": "1024x1792",
+  "16:9": "1792x1024"
+};
+const SUPPORTED_PROVIDERS = ["gemini", "openai-compatible"];
 
 const VIEWER_DB_NAME = "image-lens-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
@@ -71,6 +92,9 @@ async function handleMessage(message, sender) {
 async function getSettings() {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
   const merged = { ...DEFAULT_SETTINGS, ...stored };
+  merged.provider = normalizeProviderName(merged.provider);
+  merged.promptProvider = normalizeProviderName(merged.promptProvider || merged.provider);
+  merged.imageProvider = normalizeProviderName(merged.imageProvider || merged.provider);
 
   if (!merged.promptApiKey && merged.geminiApiKey) {
     merged.promptApiKey = merged.geminiApiKey;
@@ -86,6 +110,18 @@ async function getSettings() {
 
   if (!merged.imageModel && merged.geminiImageModel) {
     merged.imageModel = merged.geminiImageModel;
+  }
+  if (!merged.geminiBaseUrl) {
+    merged.geminiBaseUrl = GEMINI_DEFAULT_BASE_URL;
+  }
+  if (!merged.openaiBaseUrl) {
+    merged.openaiBaseUrl = OPENAI_DEFAULT_BASE_URL;
+  }
+  if (!merged.promptBaseUrl) {
+    merged.promptBaseUrl = getProviderBaseUrl(merged.promptProvider);
+  }
+  if (!merged.imageBaseUrl) {
+    merged.imageBaseUrl = getProviderBaseUrl(merged.imageProvider);
   }
 
   // Migrate the temporary Imagen fallback back to the Gemini Nano Banana 2
@@ -111,20 +147,129 @@ async function getSettings() {
     await chrome.storage.local.set(updates);
   }
 
-  return merged;
+  const providerProfiles = buildProviderProfiles(merged);
+  const promptProviderProfiles = buildPromptProviderProfiles(merged, providerProfiles);
+  const imageProviderProfiles = buildImageProviderProfiles(merged, providerProfiles);
+  repairActiveProviderProfiles(merged, promptProviderProfiles, imageProviderProfiles);
+  repairGeminiLegacyProfile(merged, providerProfiles, promptProviderProfiles, imageProviderProfiles);
+  const activePromptProfile = promptProviderProfiles[merged.promptProvider];
+  const activeImageProfile = imageProviderProfiles[merged.imageProvider];
+  const result = {
+    ...merged,
+    providerProfiles,
+    promptProviderProfiles,
+    imageProviderProfiles,
+    promptApiKey: activePromptProfile.apiKey,
+    promptModel: activePromptProfile.model,
+    promptBaseUrl: activePromptProfile.baseUrl,
+    autoAnalyze: activePromptProfile.autoAnalyze,
+    imageGenerationEnabled: activeImageProfile.imageGenerationEnabled,
+    imageApiKey: activeImageProfile.apiKey,
+    imageModel: activeImageProfile.model,
+    imageBaseUrl: activeImageProfile.baseUrl
+  };
+
+  result.geminiApiKey = providerProfiles.gemini.promptApiKey || result.geminiApiKey;
+  result.geminiTextModel = providerProfiles.gemini.promptModel || result.geminiTextModel;
+  result.geminiImageModel = providerProfiles.gemini.imageModel || result.geminiImageModel;
+
+  if (
+    JSON.stringify(providerProfiles) !== JSON.stringify(merged.providerProfiles || {}) ||
+    JSON.stringify(promptProviderProfiles) !== JSON.stringify(merged.promptProviderProfiles || {}) ||
+    JSON.stringify(imageProviderProfiles) !== JSON.stringify(merged.imageProviderProfiles || {}) ||
+    Object.keys(updates).length > 0
+  ) {
+    await chrome.storage.local.set({ providerProfiles, promptProviderProfiles, imageProviderProfiles });
+  }
+
+  return result;
 }
 
 async function saveSettings(payload) {
-  const next = sanitizeSettings(payload);
-  if ("promptApiKey" in next) {
-    next.geminiApiKey = next.promptApiKey;
-  }
-  if ("promptModel" in next) {
-    next.geminiTextModel = next.promptModel;
-  }
-  if ("imageModel" in next) {
-    next.geminiImageModel = next.imageModel;
-  }
+  const current = await getSettings();
+  const promptProvider = normalizeProviderName(payload.promptProvider || current.promptProvider);
+  const imageProvider = normalizeProviderName(payload.imageProvider || current.imageProvider);
+  const sanitized = sanitizeSettings(payload);
+  const promptProviderProfiles = {
+    ...current.promptProviderProfiles,
+    [promptProvider]: sanitizePromptProviderProfile(promptProvider, {
+      ...(current.promptProviderProfiles?.[promptProvider] || {}),
+      apiKey: sanitized.promptApiKey,
+      model: sanitized.promptModel,
+      baseUrl: sanitized.promptBaseUrl,
+      autoAnalyze: "autoAnalyze" in sanitized ? sanitized.autoAnalyze : current.autoAnalyze
+    })
+  };
+  const imageProviderProfiles = {
+    ...current.imageProviderProfiles,
+    [imageProvider]: sanitizeImageProviderProfile(imageProvider, {
+      ...(current.imageProviderProfiles?.[imageProvider] || {}),
+      apiKey: sanitized.imageApiKey,
+      model: sanitized.imageModel,
+      baseUrl: sanitized.imageBaseUrl,
+      imageGenerationEnabled:
+        "imageGenerationEnabled" in sanitized
+          ? sanitized.imageGenerationEnabled
+          : current.imageGenerationEnabled
+    })
+  };
+  const providerProfiles = {
+    ...current.providerProfiles,
+    [promptProvider]: mergeLegacyProviderProfile(
+      current.providerProfiles?.[promptProvider],
+      promptProvider,
+      promptProviderProfiles[promptProvider],
+      imageProvider === promptProvider ? imageProviderProfiles[imageProvider] : null
+    ),
+    ...(imageProvider !== promptProvider
+      ? {
+          [imageProvider]: mergeLegacyProviderProfile(
+            current.providerProfiles?.[imageProvider],
+            imageProvider,
+            promptProvider === imageProvider ? promptProviderProfiles[promptProvider] : null,
+            imageProviderProfiles[imageProvider]
+          )
+        }
+      : {})
+  };
+  const activePromptProfile = promptProviderProfiles[promptProvider];
+  const activeImageProfile = imageProviderProfiles[imageProvider];
+  const geminiLegacyProfile = providerProfiles.gemini || {};
+  const openaiLegacyProfile = providerProfiles["openai-compatible"] || {};
+  const next = {
+    provider: promptProvider,
+    promptProvider,
+    imageProvider,
+    apiMode: sanitized.apiMode || current.apiMode || "direct",
+    uiLanguage: "uiLanguage" in sanitized ? sanitized.uiLanguage : current.uiLanguage || "auto",
+    providerProfiles,
+    promptProviderProfiles,
+    imageProviderProfiles,
+    promptApiKey: activePromptProfile.apiKey,
+    promptModel: activePromptProfile.model,
+    promptBaseUrl: activePromptProfile.baseUrl,
+    autoAnalyze: activePromptProfile.autoAnalyze,
+    imageGenerationEnabled: activeImageProfile.imageGenerationEnabled,
+    imageApiKey: activeImageProfile.apiKey,
+    imageModel: activeImageProfile.model,
+    imageBaseUrl: activeImageProfile.baseUrl,
+    geminiBaseUrl: geminiLegacyProfile.geminiBaseUrl || current.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL,
+    openaiBaseUrl:
+      openaiLegacyProfile.openaiBaseUrl || current.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL,
+    customProxyUrl:
+      "customProxyUrl" in sanitized ? sanitized.customProxyUrl : current.customProxyUrl || "",
+    customProxyToken:
+      "customProxyToken" in sanitized ? sanitized.customProxyToken : current.customProxyToken || "",
+    enableChineseRecognition:
+      "enableChineseRecognition" in sanitized
+        ? sanitized.enableChineseRecognition
+        : current.enableChineseRecognition !== false
+  };
+
+  next.geminiApiKey = providerProfiles.gemini?.promptApiKey || current.geminiApiKey || "";
+  next.geminiTextModel = providerProfiles.gemini?.promptModel || current.geminiTextModel || DEFAULT_PROMPT_MODEL;
+  next.geminiImageModel = providerProfiles.gemini?.imageModel || current.geminiImageModel || DEFAULT_IMAGE_MODEL;
+
   await chrome.storage.local.set(next);
   return getSettings();
 }
@@ -142,10 +287,350 @@ function sanitizeSettings(payload) {
       next[key] = Number(value);
       continue;
     }
+    if (isPlainObject(DEFAULT_SETTINGS[key])) {
+      next[key] = isPlainObject(value) ? value : {};
+      continue;
+    }
     next[key] = String(value ?? "");
   }
 
   return next;
+}
+
+function buildProviderProfiles(settings) {
+  const storedProfiles = isPlainObject(settings.providerProfiles) ? settings.providerProfiles : {};
+  const activeProfileFallback = pickProviderProfileFields(settings);
+  const geminiFallback =
+    settings.provider === "gemini"
+      ? activeProfileFallback
+      : {
+          apiMode: "direct",
+          promptApiKey: settings.geminiApiKey || settings.promptApiKey || "",
+          promptModel: settings.geminiTextModel || settings.promptModel || DEFAULT_PROMPT_MODEL,
+          imageGenerationEnabled: settings.imageGenerationEnabled,
+          imageApiKey: settings.imageApiKey || settings.geminiApiKey || "",
+          imageModel: settings.geminiImageModel || settings.imageModel || DEFAULT_IMAGE_MODEL,
+          geminiBaseUrl: settings.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL,
+          openaiBaseUrl: OPENAI_DEFAULT_BASE_URL,
+          customProxyUrl: settings.customProxyUrl || "",
+          customProxyToken: settings.customProxyToken || "",
+          autoAnalyze: settings.autoAnalyze
+        };
+  const openaiFallback = settings.provider === "openai-compatible" ? activeProfileFallback : {};
+
+  return {
+    gemini: sanitizeProviderProfile("gemini", {
+      ...geminiFallback,
+      ...(storedProfiles.gemini || {})
+    }),
+    "openai-compatible": sanitizeProviderProfile("openai-compatible", {
+      ...openaiFallback,
+      ...(storedProfiles["openai-compatible"] || {})
+    })
+  };
+}
+
+function buildPromptProviderProfiles(settings, legacyProfiles) {
+  const storedProfiles = isPlainObject(settings.promptProviderProfiles) ? settings.promptProviderProfiles : {};
+
+  return Object.fromEntries(
+    SUPPORTED_PROVIDERS.map((provider) => [
+      provider,
+      sanitizePromptProviderProfile(provider, {
+        ...deriveLegacyPromptProfile(settings, legacyProfiles?.[provider], provider),
+        ...(storedProfiles[provider] || {})
+      })
+    ])
+  );
+}
+
+function buildImageProviderProfiles(settings, legacyProfiles) {
+  const storedProfiles = isPlainObject(settings.imageProviderProfiles) ? settings.imageProviderProfiles : {};
+
+  return Object.fromEntries(
+    SUPPORTED_PROVIDERS.map((provider) => [
+      provider,
+      sanitizeImageProviderProfile(provider, {
+        ...deriveLegacyImageProfile(settings, legacyProfiles?.[provider], provider),
+        ...(storedProfiles[provider] || {})
+      })
+    ])
+  );
+}
+
+function repairActiveProviderProfiles(settings, promptProfiles, imageProfiles) {
+  const promptProfile = promptProfiles?.[settings.promptProvider];
+  if (promptProfile) {
+    if (!promptProfile.apiKey && settings.promptApiKey) {
+      promptProfile.apiKey = settings.promptApiKey;
+    }
+    if (!promptProfile.model && settings.promptModel) {
+      promptProfile.model = settings.promptModel;
+    }
+    if (!promptProfile.baseUrl && settings.promptBaseUrl) {
+      promptProfile.baseUrl = settings.promptBaseUrl;
+    }
+    if (settings.promptProvider === "gemini" && shouldResetGeminiProfileBaseUrl(promptProfile)) {
+      promptProfile.baseUrl = settings.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL;
+    }
+    if (
+      settings.promptProvider === "openai-compatible" &&
+      shouldResetOpenAIProfileBaseUrl(promptProfile)
+    ) {
+      promptProfile.baseUrl = settings.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL;
+    }
+  }
+
+  const imageProfile = imageProfiles?.[settings.imageProvider];
+  if (imageProfile) {
+    if (!imageProfile.apiKey && settings.imageApiKey) {
+      imageProfile.apiKey = settings.imageApiKey;
+    }
+    if (!imageProfile.model && settings.imageModel) {
+      imageProfile.model = settings.imageModel;
+    }
+    if (!imageProfile.baseUrl && settings.imageBaseUrl) {
+      imageProfile.baseUrl = settings.imageBaseUrl;
+    }
+    if (settings.imageProvider === "gemini" && shouldResetGeminiProfileBaseUrl(imageProfile)) {
+      imageProfile.baseUrl = settings.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL;
+    }
+    if (
+      settings.imageProvider === "openai-compatible" &&
+      shouldResetOpenAIProfileBaseUrl(imageProfile)
+    ) {
+      imageProfile.baseUrl = settings.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL;
+    }
+  }
+}
+
+function repairGeminiLegacyProfile(settings, legacyProfiles, promptProfiles, imageProfiles) {
+  if (legacyProfiles?.gemini) {
+    if (!legacyProfiles.gemini.promptApiKey && settings.geminiApiKey) {
+      legacyProfiles.gemini.promptApiKey = settings.geminiApiKey;
+    }
+    if (!legacyProfiles.gemini.promptModel && settings.geminiTextModel) {
+      legacyProfiles.gemini.promptModel = settings.geminiTextModel;
+    }
+    if (!legacyProfiles.gemini.imageModel && settings.geminiImageModel) {
+      legacyProfiles.gemini.imageModel = settings.geminiImageModel;
+    }
+  }
+
+  if (promptProfiles?.gemini && !promptProfiles.gemini.apiKey && settings.geminiApiKey) {
+    promptProfiles.gemini.apiKey = settings.geminiApiKey;
+  }
+  if (imageProfiles?.gemini && !imageProfiles.gemini.apiKey && settings.geminiApiKey) {
+    imageProfiles.gemini.apiKey = settings.geminiApiKey;
+  }
+}
+
+function shouldResetGeminiProfileBaseUrl(profile) {
+  const model = String(profile?.model || "").trim().toLowerCase();
+  const baseUrl = String(profile?.baseUrl || "").trim().toLowerCase();
+
+  if (!model.startsWith("gemini")) return false;
+  if (!baseUrl) return true;
+  return looksLikeOpenAICompatibleBaseUrl(baseUrl) && !looksLikeGeminiBaseUrl(baseUrl);
+}
+
+function shouldResetOpenAIProfileBaseUrl(profile) {
+  const model = String(profile?.model || "").trim().toLowerCase();
+  const baseUrl = String(profile?.baseUrl || "").trim().toLowerCase();
+
+  if (!(model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4"))) {
+    return false;
+  }
+  if (!baseUrl) return true;
+  return looksLikeGeminiBaseUrl(baseUrl);
+}
+
+function looksLikeGeminiBaseUrl(baseUrl) {
+  return /generativelanguage\.googleapis\.com/.test(String(baseUrl || "").toLowerCase());
+}
+
+function looksLikeOpenAICompatibleBaseUrl(baseUrl) {
+  const normalized = String(baseUrl || "").toLowerCase();
+  return /api\.openai\.com/.test(normalized) || /openrouter\.ai/.test(normalized);
+}
+
+function pickProviderProfileFields(source) {
+  return {
+    apiMode: source?.apiMode,
+    promptApiKey: source?.promptApiKey,
+    promptModel: source?.promptModel,
+    imageGenerationEnabled: source?.imageGenerationEnabled,
+    imageApiKey: source?.imageApiKey,
+    imageModel: source?.imageModel,
+    geminiBaseUrl: source?.geminiBaseUrl,
+    openaiBaseUrl: source?.openaiBaseUrl,
+    customProxyUrl: source?.customProxyUrl,
+    customProxyToken: source?.customProxyToken,
+    autoAnalyze: source?.autoAnalyze
+  };
+}
+
+function deriveLegacyPromptProfile(settings, legacyProfile, provider) {
+  if (settings.promptProvider === provider) {
+    return {
+      apiKey: settings.promptApiKey,
+      model: settings.promptModel,
+      baseUrl: settings.promptBaseUrl || getProviderBaseUrl(provider),
+      autoAnalyze: settings.autoAnalyze
+    };
+  }
+
+  return {
+    apiKey: legacyProfile?.promptApiKey || "",
+    model: legacyProfile?.promptModel || getProviderDefaults(provider).promptModel,
+    baseUrl: getLegacyProfileBaseUrl(legacyProfile, provider),
+    autoAnalyze: true
+  };
+}
+
+function deriveLegacyImageProfile(settings, legacyProfile, provider) {
+  if (settings.imageProvider === provider) {
+    return {
+      apiKey: settings.imageApiKey,
+      model: settings.imageModel,
+      baseUrl: settings.imageBaseUrl || getProviderBaseUrl(provider),
+      imageGenerationEnabled: settings.imageGenerationEnabled
+    };
+  }
+
+  return {
+    apiKey: legacyProfile?.imageApiKey || "",
+    model: legacyProfile?.imageModel || getProviderDefaults(provider).imageModel,
+    baseUrl: getLegacyProfileBaseUrl(legacyProfile, provider),
+    imageGenerationEnabled: true
+  };
+}
+
+function sanitizePromptProviderProfile(provider, input) {
+  const defaults = getPromptProviderDefaults(provider);
+  const merged = { ...defaults, ...(isPlainObject(input) ? input : {}) };
+
+  return {
+    apiKey: String(merged.apiKey || ""),
+    model: String(merged.model || defaults.model),
+    baseUrl: String(merged.baseUrl || defaults.baseUrl),
+    autoAnalyze: Boolean(merged.autoAnalyze)
+  };
+}
+
+function sanitizeImageProviderProfile(provider, input) {
+  const defaults = getImageProviderDefaults(provider);
+  const merged = { ...defaults, ...(isPlainObject(input) ? input : {}) };
+
+  return {
+    apiKey: String(merged.apiKey || ""),
+    model: String(merged.model || defaults.model),
+    baseUrl: String(merged.baseUrl || defaults.baseUrl),
+    imageGenerationEnabled: Boolean(merged.imageGenerationEnabled)
+  };
+}
+
+function getPromptProviderDefaults(provider) {
+  return {
+    apiKey: "",
+    model: provider === "openai-compatible" ? "gpt-5.5" : DEFAULT_PROMPT_MODEL,
+    baseUrl: getProviderBaseUrl(provider),
+    autoAnalyze: true
+  };
+}
+
+function getImageProviderDefaults(provider) {
+  return {
+    apiKey: "",
+    model: provider === "openai-compatible" ? OPENAI_LATEST_IMAGE_MODEL : DEFAULT_IMAGE_MODEL,
+    baseUrl: getProviderBaseUrl(provider),
+    imageGenerationEnabled: true
+  };
+}
+
+function getProviderBaseUrl(provider) {
+  return provider === "openai-compatible" ? OPENAI_DEFAULT_BASE_URL : GEMINI_DEFAULT_BASE_URL;
+}
+
+function getLegacyProfileBaseUrl(legacyProfile, provider) {
+  if (provider === "openai-compatible") {
+    return String(legacyProfile?.openaiBaseUrl || OPENAI_DEFAULT_BASE_URL);
+  }
+  return String(legacyProfile?.geminiBaseUrl || GEMINI_DEFAULT_BASE_URL);
+}
+
+function mergeLegacyProviderProfile(existingProfile, provider, promptProfile, imageProfile) {
+  const base = sanitizeProviderProfile(provider, existingProfile || {});
+  const mergedPrompt = promptProfile || deriveLegacyPromptProfile({}, existingProfile || {}, provider);
+  const mergedImage = imageProfile || deriveLegacyImageProfile({}, existingProfile || {}, provider);
+
+  return {
+    ...base,
+    promptApiKey: mergedPrompt.apiKey,
+    promptModel: mergedPrompt.model,
+    imageGenerationEnabled: mergedImage.imageGenerationEnabled,
+    imageApiKey: mergedImage.apiKey,
+    imageModel: mergedImage.model,
+    geminiBaseUrl: provider === "gemini" ? mergedPrompt.baseUrl : base.geminiBaseUrl,
+    openaiBaseUrl: provider === "openai-compatible" ? mergedPrompt.baseUrl : base.openaiBaseUrl,
+    autoAnalyze: mergedPrompt.autoAnalyze
+  };
+}
+
+function sanitizeProviderProfile(provider, input) {
+  const defaults = getProviderDefaults(provider);
+  const merged = { ...defaults, ...(isPlainObject(input) ? input : {}) };
+
+  return {
+    apiMode: merged.apiMode === "proxy" ? "proxy" : "direct",
+    promptApiKey: String(merged.promptApiKey || ""),
+    promptModel: String(merged.promptModel || defaults.promptModel),
+    imageGenerationEnabled: Boolean(merged.imageGenerationEnabled),
+    imageApiKey: String(merged.imageApiKey || ""),
+    imageModel: String(merged.imageModel || defaults.imageModel),
+    geminiBaseUrl: String(merged.geminiBaseUrl || defaults.geminiBaseUrl),
+    openaiBaseUrl: String(merged.openaiBaseUrl || defaults.openaiBaseUrl),
+    customProxyUrl: String(merged.customProxyUrl || ""),
+    customProxyToken: String(merged.customProxyToken || ""),
+    autoAnalyze: Boolean(merged.autoAnalyze)
+  };
+}
+
+function getProviderDefaults(provider) {
+  if (provider === "openai-compatible") {
+    return {
+      apiMode: "direct",
+      promptApiKey: "",
+      promptModel: "gpt-5.5",
+      imageGenerationEnabled: true,
+      imageApiKey: "",
+      imageModel: OPENAI_LATEST_IMAGE_MODEL,
+      geminiBaseUrl: GEMINI_DEFAULT_BASE_URL,
+      openaiBaseUrl: OPENAI_DEFAULT_BASE_URL,
+      customProxyUrl: "",
+      customProxyToken: "",
+      autoAnalyze: true
+    };
+  }
+
+  return {
+    apiMode: "direct",
+    promptApiKey: "",
+    promptModel: DEFAULT_PROMPT_MODEL,
+    imageGenerationEnabled: true,
+    imageApiKey: "",
+    imageModel: DEFAULT_IMAGE_MODEL,
+    geminiBaseUrl: GEMINI_DEFAULT_BASE_URL,
+    openaiBaseUrl: OPENAI_DEFAULT_BASE_URL,
+    customProxyUrl: "",
+    customProxyToken: "",
+    autoAnalyze: true
+  };
+}
+
+function normalizeProviderName(value) {
+  const normalized = String(value || "").trim();
+  return SUPPORTED_PROVIDERS.includes(normalized) ? normalized : "gemini";
 }
 
 function getSettingsTranslator(settings) {
@@ -182,25 +667,10 @@ async function analyzeImage(payload, sender) {
     includeChinese: settings.enableChineseRecognition
   });
 
-  const response = await callGeminiGenerateContent({
-    apiKey: settings.promptApiKey,
-    model: settings.promptModel,
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: imagePart.mimeType,
-              data: imagePart.data
-            }
-          }
-        ]
-      }
-    ]
-  });
-
-  const rawText = extractTextFromGemini(response);
+  const rawText =
+    settings.promptProvider === "openai-compatible"
+      ? await analyzeImageWithOpenAICompatible(settings, imagePart, prompt)
+      : await analyzeImageWithGemini(settings, imagePart, prompt);
   const parsed = parseLooseJson(rawText);
   const calibrated = calibratePromptPayload(parsed, {
     includeChinese: settings.enableChineseRecognition
@@ -255,22 +725,10 @@ async function generateImage(payload) {
 
   ensureImageApiKey(settings);
 
-  const data = await callGeminiGenerateContent({
-    apiKey: settings.imageApiKey,
-    model: settings.imageModel,
-    contents: [
-      {
-        parts: [{ text: prompt }]
-      }
-    ],
-    generationConfig: {
-      responseModalities: ["Image"],
-      imageConfig: {
-        aspectRatio: payload.aspectRatio || settings.aspectRatio || "1:1"
-      }
-    }
-  });
-  const images = extractImagesFromGemini(data);
+  const images =
+    settings.imageProvider === "openai-compatible"
+      ? await generateImageWithOpenAICompatible(settings, payload, prompt)
+      : await generateImageWithGemini(settings, payload, prompt);
 
   if (images.length === 0) {
     throw new Error("Image generation returned no images.");
@@ -283,7 +741,7 @@ async function generateImage(payload) {
 
   return {
     images,
-    provider: settings.provider,
+    provider: settings.imageProvider,
     model: settings.imageModel,
     ...viewer
   };
@@ -299,6 +757,91 @@ async function openViewer(payload = {}) {
 
   await openViewerTab();
   return { opened: true };
+}
+
+async function analyzeImageWithGemini(settings, imagePart, prompt) {
+  const response = await callGeminiGenerateContent({
+    baseUrl: settings.promptBaseUrl,
+    apiKey: settings.promptApiKey,
+    model: settings.promptModel,
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          {
+            inline_data: {
+              mime_type: imagePart.mimeType,
+              data: imagePart.data
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  return extractTextFromGemini(response);
+}
+
+async function analyzeImageWithOpenAICompatible(settings, imagePart, prompt) {
+  const response = await callOpenAICompatibleChatCompletion({
+    baseUrl: settings.promptBaseUrl,
+    apiKey: settings.promptApiKey,
+    model: settings.promptModel || OPENAI_DEFAULT_PROMPT_MODEL,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${imagePart.mimeType};base64,${imagePart.data}`
+            }
+          }
+        ]
+      }
+    ],
+    temperature: 0.2,
+    response_format: { type: "json_object" }
+  });
+
+  return extractTextFromOpenAICompatible(response);
+}
+
+async function generateImageWithGemini(settings, payload, prompt) {
+  const data = await callGeminiGenerateContent({
+    baseUrl: settings.imageBaseUrl,
+    apiKey: settings.imageApiKey,
+    model: settings.imageModel,
+    contents: [
+      {
+        parts: [{ text: prompt }]
+      }
+    ],
+    generationConfig: {
+      responseModalities: ["Image"],
+      imageConfig: {
+        aspectRatio: payload.aspectRatio || settings.aspectRatio || "1:1"
+      }
+    }
+  });
+
+  return extractImagesFromGemini(data);
+}
+
+async function generateImageWithOpenAICompatible(settings, payload, prompt) {
+  const size = mapAspectRatioToOpenAIImageSize(payload.aspectRatio || settings.aspectRatio || "1:1");
+  const count = clampImageCount(payload.count || settings.imageCount || 1);
+  const response = await callOpenAICompatibleImagesGenerate({
+    baseUrl: settings.imageBaseUrl,
+    apiKey: settings.imageApiKey,
+    model: settings.imageModel || OPENAI_LATEST_IMAGE_MODEL,
+    prompt,
+    n: count,
+    size
+  });
+
+  return extractImagesFromOpenAICompatible(response);
 }
 
 async function openOptionsPage() {
@@ -341,25 +884,62 @@ async function callProxy(settings, path, payload) {
   return parseApiResponse(response);
 }
 
-async function callGeminiGenerateContent({ apiKey, model, contents, generationConfig }) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      model
-    )}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      },
-      body: JSON.stringify({
-        contents,
-        ...(generationConfig ? { generationConfig } : {})
-      })
-    }
+async function callGeminiGenerateContent({ baseUrl, apiKey, model, contents, generationConfig }) {
+  const endpoint = buildGeminiUrl(
+    baseUrl,
+    `/models/${encodeURIComponent(model)}:generateContent`
   );
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
+    },
+    body: JSON.stringify({
+      contents,
+      ...(generationConfig ? { generationConfig } : {})
+    })
+  });
 
   return parseApiResponse(response);
+}
+
+function buildGeminiUrl(baseUrl, path) {
+  const normalizedBaseUrl = String(baseUrl || GEMINI_DEFAULT_BASE_URL).trim() || GEMINI_DEFAULT_BASE_URL;
+  return new URL(path.replace(/^\//, ""), ensureTrailingSlash(normalizedBaseUrl)).toString();
+}
+
+async function callOpenAICompatibleChatCompletion({ baseUrl, apiKey, ...payload }) {
+  const endpoint = buildOpenAICompatibleUrl(baseUrl, "/chat/completions");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseApiResponse(response);
+}
+
+async function callOpenAICompatibleImagesGenerate({ baseUrl, apiKey, ...payload }) {
+  const endpoint = buildOpenAICompatibleUrl(baseUrl, "/images/generations");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseApiResponse(response);
+}
+
+function buildOpenAICompatibleUrl(baseUrl, path) {
+  const normalizedBaseUrl = String(baseUrl || OPENAI_DEFAULT_BASE_URL).trim() || OPENAI_DEFAULT_BASE_URL;
+  return new URL(path.replace(/^\//, ""), ensureTrailingSlash(normalizedBaseUrl)).toString();
 }
 
 async function parseApiResponse(response) {
@@ -382,6 +962,49 @@ function extractTextFromGemini(data) {
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+function extractTextFromOpenAICompatible(data) {
+  const messageContent = data?.choices?.[0]?.message?.content;
+
+  if (typeof messageContent === "string") {
+    return messageContent.trim();
+  }
+
+  if (Array.isArray(messageContent)) {
+    return messageContent
+      .map((part) => part?.text || "")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  return "";
+}
+
+function extractImagesFromOpenAICompatible(data) {
+  const items = Array.isArray(data?.data) ? data.data : [];
+
+  return items
+    .map((item) => {
+      if (item?.b64_json) {
+        return `data:image/png;base64,${item.b64_json}`;
+      }
+      if (item?.url) {
+        return item.url;
+      }
+      return "";
+    })
+    .filter(Boolean);
+}
+
+function mapAspectRatioToOpenAIImageSize(aspectRatio) {
+  return OPENAI_IMAGE_SIZE_BY_RATIO[aspectRatio] || OPENAI_IMAGE_SIZE_BY_RATIO["1:1"];
+}
+
+function clampImageCount(value) {
+  const count = Number(value) || 1;
+  return Math.max(1, Math.min(4, count));
 }
 
 function parseLooseJson(rawText) {
@@ -520,7 +1143,7 @@ function buildAnalyzePrompt(payload, { includeChinese = true } = {}) {
     includeChinese
       ? "17. structuredPrompt.zhShort 必须基于 structuredPrompt.zhFull 精简，保留主体、风格、光线、镜头、关键材质和构图。"
       : "17. structuredPrompt.zhShort 留空字符串，不要生成中文提示词。",
-    includeChinese ? "18. keywords：提供 6 到 12 个中文短词。" : "18. keywords：提供 6 到 12 个英文短词。",
+    includeChinese ? "18. keywords：提供 6 到 12 个中文短词。" : "18. keywords：provide 6 to 12 short English keywords.",
     "19. drafts 可复制 structuredPrompt 对应字段。",
     "20. 如果字段缺失，返回空字符串或空数组，不要编造无法观察的细节。",
     "21. 输出前先内部自检：根据 structuredPrompt.enFull 重新生成图片时，是否足以还原原图 90% 的视觉变量；如果不能，请补足缺失段落。",
@@ -539,7 +1162,9 @@ function calibratePromptPayload(parsed, { includeChinese = true } = {}) {
   );
   const drafts = normalizeDraftPrompts(parsed?.drafts, parsed, structuredPrompt);
   const keywords = normalizeKeywords(parsed?.keywords, analysis);
-  const displayPrompts = composeDisplayPrompts(analysis, drafts, structuredPrompt, { includeChinese });
+  const displayPrompts = composeDisplayPrompts(analysis, drafts, structuredPrompt, {
+    includeChinese
+  });
 
   const payload = {
     title: normalizeTitle(parsed?.title, analysis),
@@ -1561,6 +2186,7 @@ async function fetchImageAsInlineData({ imageUrl, imageDataUrl, pageUrl, screens
     }
 
     const response = await fetch(imageUrl, fetchOptions);
+
     if (!response.ok) {
       throw new Error(`Failed to fetch image (${response.status}).`);
     }
@@ -1668,7 +2294,9 @@ async function cropCapturedImage(dataUrl, crop) {
   }
 
   ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
-  const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
+  const croppedBlob = await canvas.convertToBlob({
+    type: "image/png"
+  });
   const buffer = await croppedBlob.arrayBuffer();
 
   return {
@@ -1719,10 +2347,6 @@ function normalizeImageUrl(url) {
 
 function ensureTrailingSlash(url) {
   return url.endsWith("/") ? url : `${url}/`;
-}
-
-function clampImageCount(count) {
-  return Math.min(4, Math.max(1, Number(count) || 1));
 }
 
 async function writeViewerPayload(payload) {

@@ -119,6 +119,10 @@ h3 {
   gap: 8px;
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 .field-stack {
   display: grid;
   gap: 18px;
