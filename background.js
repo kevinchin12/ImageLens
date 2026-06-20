@@ -783,7 +783,6 @@ async function analyzeImageWithOpenAICompatible(settings, imagePart, prompt) {
         ]
       }
     ],
-    temperature: 0.2,
     response_format: { type: "json_object" }
   });
 
