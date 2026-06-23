@@ -153,5 +153,5 @@ Current code and docs were aligned with the following review-sensitive areas:
 Before submitting, make sure the Chrome Web Store Privacy tab matches:
 
 - The extension behavior in code
-- The privacy policy at `https://github.com/kevinchin12/ImageLens/blob/codex/chrome-store-v0.1.0/PRIVACY.md`
+- The privacy policy at `https://github.com/kevinchin12/ImageLens/blob/codex%2Fchrome-store-v0.1.0/PRIVACY.md`
 - The descriptions in the store listing
