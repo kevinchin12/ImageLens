@@ -7,6 +7,7 @@
 插件会使用 `chrome.storage.local` 在当前浏览器本地保存以下配置：
 
 - 用户填写的 API Key
+- 用户选择的服务商
 - 用户填写的模型名称
 - 用户填写的 Base URL
 - 是否开启自动识别
@@ -24,6 +25,8 @@
 
 当用户主动点击「立刻生图」时，插件会将当前提示词、生图比例和出图张数发送到用户当前配置的生图服务商，用于生成图片。
 
+这些外部 API 可以是 Google Gemini，也可以是用户自行配置的 OpenAI-compatible 服务或 Base URL。用户填写的 API Key 只会在用户主动触发识别或生图时，用于向当前选择的服务商发起请求，不会发送给项目作者。
+
 外部 API 对这些数据的处理方式，受对应服务商自己的服务条款和隐私政策约束。
 
 ## 不收集的数据
@@ -40,6 +43,6 @@
 
 - `storage`：用于在本地保存插件配置。
 - `<all_urls>`：用于在网页图片上注入识别按钮，在用户主动点击后读取对应图片，并在个别网站限制直接读取图片时，本地裁剪当前可见图片区域用于识别。
-- `https://generativelanguage.googleapis.com/*`：用于将用户主动触发的 Gemini 请求发送到 Gemini API。
+- `https://generativelanguage.googleapis.com/*`：用于将用户主动触发的 Gemini 请求发送到 Gemini API。OpenAI-compatible 请求会发送到用户自己配置的 Base URL。
 
 插件只会在用户主动触发识别或生图时调用外部 API。

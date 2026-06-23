@@ -4,11 +4,11 @@ This file collects the store listing copy and review notes for the Chrome Web St
 
 ## Release Version
 
-`1.0.0`
+`1.0.1`
 
 ## Single Purpose Description
 
-Analyze images on web pages and turn them into editable prompts for image generation with the user's own Gemini API key.
+Analyze images on web pages and turn them into editable prompts for image generation with the user's own API key.
 
 ## Store Name
 
@@ -16,11 +16,11 @@ Image Lens
 
 ## Summary / Short Description
 
-Analyze webpage images and generate editable prompts with your own Gemini API key.
+Analyze webpage images and generate editable prompts with your own API key.
 
 ## Chinese Summary / Short Description
 
-分析网页图片内容，并用你自己的 Gemini API Key 生成可编辑提示词。
+分析网页图片内容，并用你自己的 API Key 生成可编辑提示词。
 
 ## Detailed Description
 
@@ -33,14 +33,14 @@ What it does:
 - Supports English and Chinese interface language.
 - Lets you view prompts in a structured format.
 - Lets you edit and copy prompts directly.
-- Optionally generates new images from the prompt with your own Gemini API key.
+- Optionally generates new images from the prompt with your own API key.
 
 How it works:
 
-- You provide your own Gemini API key in the extension settings.
-- When you click an image, the extension reads that image and sends the image data to Gemini API for analysis.
-- On sites that block direct image fetching, the extension locally captures the visible tab and crops only the image area you clicked before sending that cropped image to Gemini API.
-- If image generation is enabled, the extension sends the current prompt to Gemini API to generate images.
+- You provide your own API key in the extension settings and can choose Gemini or an OpenAI-compatible provider.
+- When you click an image, the extension reads that image and sends the image data to your selected provider for analysis.
+- On sites that block direct image fetching, the extension locally captures the visible tab and crops only the image area you clicked before sending that cropped image to your selected provider.
+- If image generation is enabled, the extension sends the current prompt to your selected provider to generate images.
 
 Privacy model:
 
@@ -59,14 +59,14 @@ Image Lens 可以帮你分析网页里的图片，并将图片内容整理成可
 - 支持中英文界面切换。
 - 支持结构化查看提示词内容。
 - 支持直接编辑和复制提示词。
-- 可选开启生图功能，并使用你自己的 Gemini API Key 进行生成。
+- 可选开启生图功能，并使用你自己的 API Key 进行生成。
 
 工作方式：
 
-- 你需要在插件设置页填写自己的 Gemini API Key。
-- 当你点击网页图片时，插件会读取该图片，并将图片数据发送到 Gemini API 进行识别分析。
-- 如果某些网站限制直接读取图片，插件会先在本地截取当前可见标签页，再只裁剪出你点击的图片区域后发送到 Gemini API。
-- 如果开启了生图功能，插件会将当前提示词发送到 Gemini API 生成图片。
+- 你需要在插件设置页填写自己的 API Key，并可选择 Gemini 或 OpenAI Compatible 服务。
+- 当你点击网页图片时，插件会读取该图片，并将图片数据发送到你当前选择的服务商进行识别分析。
+- 如果某些网站限制直接读取图片，插件会先在本地截取当前可见标签页，再只裁剪出你点击的图片区域后发送到你当前选择的服务商。
+- 如果开启了生图功能，插件会将当前提示词发送到你当前选择的服务商生成图片。
 
 隐私方式：
 
@@ -78,7 +78,7 @@ Image Lens 可以帮你分析网页里的图片，并将图片内容整理成可
 
 ### Single purpose
 
-Analyze user-selected webpage images and convert them into editable prompts for image generation, with optional prompt-based image generation, using the user's own Gemini API key.
+Analyze user-selected webpage images and convert them into editable prompts for image generation, with optional prompt-based image generation, using the user's own API key.
 
 ### Data use disclosure
 
@@ -89,7 +89,7 @@ Disclose that the extension processes the following when the user actively trigg
 - Image alt text when available
 - Cropped image area from the visible tab when direct image fetch is blocked by the site
 - User-provided prompt text for image generation
-- User-provided Gemini API key stored locally
+- User-provided API key stored locally
 
 ### Data handling statement
 
@@ -103,15 +103,15 @@ Use wording consistent with the privacy policy:
 
 ### `storage`
 
-Used to store the user's Gemini API key, selected Gemini models, interface language, and feature settings locally in the browser.
+Used to store the user's API keys, selected providers, Base URLs, model settings, interface language, and feature settings locally in the browser.
 
 ### `<all_urls>`
 
-Used to show the analysis entry point on webpage images and, when the user clicks an image, read that image for analysis. On sites that block direct image access, it is also used to locally crop the clicked image area from the visible tab before sending that cropped image to Gemini API.
+Used to show the analysis entry point on webpage images and, when the user clicks an image, read that image for analysis. On sites that block direct image access, it is also used to locally crop the clicked image area from the visible tab before sending that cropped image to the user-selected provider API.
 
 ### `https://generativelanguage.googleapis.com/*`
 
-Used to send user-triggered image analysis and image generation requests to Gemini API.
+Used for Gemini API requests when the user chooses Gemini as the provider. OpenAI-compatible requests are sent to the user-configured Base URL.
 
 ## Screenshots Checklist
 
@@ -119,7 +119,7 @@ Chrome recommends at least 1 screenshot and allows up to 5. Use actual UI from t
 
 Recommended set:
 
-1. Options page showing Gemini API key setup and language selector.
+1. Options page showing provider selection, API key setup, and language selector.
 2. In-page analysis panel on a real webpage image.
 3. Structured prompt view in English.
 4. Structured prompt view in Chinese.
@@ -145,7 +145,7 @@ Current code and docs were aligned with the following review-sensitive areas:
 
 - Minimum permissions: removed unused `tabs` permission.
 - Single purpose: image analysis to prompt generation, with optional prompt-based image generation as part of the same workflow.
-- Disclosure consistency: privacy policy, README, and UI now explicitly refer to Gemini API key usage.
+- Disclosure consistency: privacy policy, README, and UI now explicitly refer to user-provided API key usage and provider selection.
 - Data handling disclosure: screenshot crop fallback is documented.
 
 ## Submission Reminder
@@ -153,5 +153,5 @@ Current code and docs were aligned with the following review-sensitive areas:
 Before submitting, make sure the Chrome Web Store Privacy tab matches:
 
 - The extension behavior in code
-- The privacy policy at `PRIVACY.md`
+- The privacy policy at `https://github.com/kevinchin12/ImageLens/blob/codex/chrome-store-v0.1.0/PRIVACY.md`
 - The descriptions in the store listing

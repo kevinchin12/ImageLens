@@ -13,7 +13,7 @@
         <div>
           <p id="hero-eyebrow" class="eyebrow">Image Lens</p>
           <h1 id="hero-title">Add your model settings and start using the extension</h1>
-          <p id="hero-subtitle" class="subtitle">This version uses your own Gemini API key. The extension does not bundle or provide Gemini API keys.</p>
+          <p id="hero-subtitle" class="subtitle">This version uses your own API key. The extension does not bundle or provide API keys.</p>
         </div>
       </section>
 
@@ -63,9 +63,9 @@
             </label>
 
             <label class="field">
-              <span id="prompt-api-key-label">Gemini API Key for Analysis</span>
-              <input name="promptApiKey" type="password" placeholder="Enter your Gemini API key" autocomplete="off" />
-              <small id="local-storage-note">Stored only in local chrome.storage.local and used only for Gemini API requests.</small>
+              <span id="prompt-api-key-label">API Key for Analysis</span>
+              <input name="promptApiKey" type="password" placeholder="Enter your API key" autocomplete="off" />
+              <small id="local-storage-note">Stored only in local chrome.storage.local and used only for requests to your selected provider.</small>
             </label>
 
             <label class="field">
@@ -117,9 +117,9 @@
               </label>
 
               <label class="field">
-                <span id="image-api-key-label">Gemini API Key for Image Generation</span>
-                <input name="imageApiKey" type="password" placeholder="Enter your Gemini API key" autocomplete="off" />
-                <small id="same-key-note">If both analysis and generation use Gemini, you can use the same Gemini API key.</small>
+                <span id="image-api-key-label">API Key for Image Generation</span>
+                <input name="imageApiKey" type="password" placeholder="Enter your API key" autocomplete="off" />
+                <small id="same-key-note">If both analysis and generation use the same provider, you can use the same API key.</small>
               </label>
 
               <label class="field">
@@ -134,7 +134,7 @@
             <button id="save-button" class="primary" type="submit">Save Settings</button>
             <button id="open-doc" type="button">Documentation</button>
           </div>
-          <p id="options-note" class="note">Note: this extension uses your own Gemini API key. Add it before using the extension.</p>
+          <p id="options-note" class="note">Note: this extension uses your own API key. Add it before using the extension.</p>
           <p id="status" class="status">Loading settings...</p>
         </form>
       </section>
