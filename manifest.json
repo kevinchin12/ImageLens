@@ -9,7 +9,7 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "contextMenus"],
   "host_permissions": [
     "<all_urls>",
     "https://generativelanguage.googleapis.com/*"
@@ -27,6 +27,14 @@
     }
   ],
   "options_page": "options.html",
+  "commands": {
+    "select-region": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "框选区域分析"
+    }
+  },
   "action": {
     "default_title": "图透镜 Image Lens",
     "default_icon": {

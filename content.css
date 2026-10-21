@@ -415,6 +415,68 @@
   cursor: pointer;
 }
 
+#pg-region-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  cursor: crosshair;
+  background: rgba(2, 6, 23, 0.32);
+  user-select: none;
+  touch-action: none;
+}
+
+#pg-region-overlay .pg-region-hint {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--pg-glass-stroke);
+  background: var(--pg-glass-bg);
+  color: var(--pg-ink);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  pointer-events: none;
+}
+
+#pg-region-overlay .pg-region-box {
+  position: fixed;
+  display: none;
+  border: 1.5px solid var(--pg-accent-2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(2, 6, 23, 0.5);
+  pointer-events: none;
+}
+
+#pg-region-overlay .pg-region-box.is-visible {
+  display: block;
+}
+
+#pg-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 2147483647;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--pg-glass-stroke);
+  background: var(--pg-glass-bg);
+  box-shadow: 0 12px 30px var(--pg-glass-shadow);
+  color: var(--pg-ink);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#pg-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 @keyframes pg-spin {
   to {
     transform: rotate(360deg);

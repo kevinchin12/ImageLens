@@ -45,7 +45,13 @@ const VIEWER_DB_NAME = "image-lens-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
 const VIEWER_RECORD_ID = "current";
 
+const CONTEXT_MENU_ANALYZE_IMAGE = "image-lens-analyze-image";
+const CONTEXT_MENU_SELECT_REGION = "image-lens-select-region";
+const SELECT_REGION_COMMAND = "select-region";
+
 chrome.runtime.onInstalled.addListener(async () => {
+  await setupContextMenus();
+
   const existing = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
   const missing = Object.fromEntries(
     Object.entries(DEFAULT_SETTINGS).filter(([key]) => !(key in existing))
@@ -66,6 +72,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === CONTEXT_MENU_SELECT_REGION) {
+    sendToTab(tab, { type: "start-region-selection" });
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_ANALYZE_IMAGE) {
+    sendToTab(tab, {
+      type: "context-analyze-image",
+      payload: {
+        srcUrl: info.mediaType === "image" ? info.srcUrl || "" : "",
+        // The content script only runs in the top frame, so the right-click
+        // position it recorded does not apply to clicks inside an iframe.
+        inSubframe: Boolean(info.frameId)
+      }
+    });
+  }
+});
+
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command === SELECT_REGION_COMMAND) {
+    sendToTab(tab, { type: "start-region-selection" });
+  }
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  sendToTab(tab, { type: "start-region-selection" });
+});
+
+async function setupContextMenus() {
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_ANALYZE_IMAGE,
+    title: "用图透镜分析这里的图片",
+    contexts: ["page", "image", "link", "video", "frame"]
+  });
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_SELECT_REGION,
+    title: "用图透镜框选区域分析",
+    contexts: ["page", "image", "link", "video", "frame", "selection"]
+  });
+}
+
+function sendToTab(tab, message) {
+  if (tab?.id === undefined) return;
+
+  chrome.tabs.sendMessage(tab.id, message, { frameId: 0 }).catch((error) => {
+    // Pages opened before the extension was installed or updated, and
+    // chrome:// pages, have no content script to receive the message.
+    console.warn("[Image Lens] Could not reach the page. Reload it and try again.", error);
+  });
+}
+
 async function handleMessage(message, sender) {
   switch (message.type) {
     case "get-settings":
@@ -74,6 +133,8 @@ async function handleMessage(message, sender) {
       return saveSettings(message.payload || {});
     case "analyze-image":
       return analyzeImage(message.payload || {}, sender);
+    case "capture-region":
+      return captureRegion(message.payload || {}, sender);
     case "generate-image":
       return generateImage(message.payload || {});
     case "open-viewer":
@@ -2307,6 +2368,21 @@ function normalizeScreenshotCrop(value) {
   }
 
   return crop;
+}
+
+async function captureRegion(payload, sender) {
+  const crop = normalizeScreenshotCrop(payload.crop);
+  if (!crop) {
+    throw new Error("框选区域无效，请重新框选。");
+  }
+  if (sender?.tab?.windowId === undefined) {
+    throw new Error("无法获取当前标签页，请刷新页面后重试。");
+  }
+
+  const imagePart = await captureVisibleTabImagePart(sender.tab.windowId, crop);
+  return {
+    dataUrl: `data:${imagePart.mimeType};base64,${imagePart.data}`
+  };
 }
 
 async function captureVisibleTabImagePart(windowId, crop) {
