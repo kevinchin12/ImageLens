@@ -186,6 +186,9 @@ function t(key, values) {
 
 function applyStaticTranslations() {
   const translator = getTranslator();
+  // Tells Chrome which language's glyph shapes to use for Chinese text.
+  panel.lang = translator.messages.htmlLang;
+  toast.lang = translator.messages.htmlLang;
   hoverTrigger.title = translator.t("panelHoverTitle");
   panel.querySelector("#pg-brand").textContent = translator.t("appName");
   els.openOptions.setAttribute("aria-label", translator.t("panelOpenSettings"));
@@ -1008,9 +1011,13 @@ function startRegionSelection() {
   if (state.regionSelecting) return;
   state.regionSelecting = true;
   hideHoverButton();
+  // Hide the panel while selecting so the page looks exactly like the
+  // screenshot will, instead of the panel covering part of it.
+  const restoreUi = hideOwnUiForCapture([panel, hoverTrigger]);
 
   const overlay = document.createElement("div");
   overlay.id = "pg-region-overlay";
+  overlay.lang = getTranslator().messages.htmlLang;
   overlay.innerHTML = `
     <div class="pg-region-hint">${escapeHtml(t("regionSelectHint"))}</div>
     <div class="pg-region-box"></div>
@@ -1044,6 +1051,9 @@ function startRegionSelection() {
     overlay.remove();
     document.removeEventListener("keydown", onKeyDown, true);
     state.regionSelecting = false;
+    // captureViewportRegion hides the panel again in the same task, so it is
+    // not painted in between.
+    restoreUi();
     if (!selected) return;
 
     try {
@@ -1101,8 +1111,7 @@ async function captureViewportRegion(crop) {
   }
 }
 
-function hideOwnUiForCapture() {
-  const elements = [panel, hoverTrigger, toast];
+function hideOwnUiForCapture(elements = [panel, hoverTrigger, toast]) {
   const previous = elements.map((element) => element.style.visibility);
   elements.forEach((element) => {
     element.style.visibility = "hidden";

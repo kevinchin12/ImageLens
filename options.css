@@ -10,6 +10,10 @@
   --accent: #5b7cff;
   --accent-2: #22d3ee;
   --shadow: rgba(2, 6, 23, 0.46);
+  /* Mac fonts first, then Windows, then Linux; see content.css. */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC",
+    sans-serif;
 }
 
 * {
@@ -19,7 +23,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+  font-family: var(--font);
   color: var(--text);
   background:
     radial-gradient(circle at top left, rgba(34, 211, 238, 0.14), transparent 28%),
@@ -162,6 +166,13 @@ select {
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
     rgba(255, 255, 255, 0.03);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+/* Windows draws the dropdown list with the select's light text on a light
+   background unless the options get their own colors. */
+select option {
+  background-color: #101a2f;
   color: var(--text);
 }
 
