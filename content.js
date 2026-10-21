@@ -4,6 +4,19 @@ const DEFAULT_TRANSLATOR = globalThis.ImageLensI18n.createTranslator("auto");
 
 const MIN_SELECTION_SIZE = 16;
 const MIN_BACKGROUND_IMAGE_SIZE = 48;
+const MAX_VISIBLE_KEYWORDS = 8;
+// Same order as SECTION_KEYS in prompt-analysis.js.
+const STRUCTURE_KEYS = [
+  "subject",
+  "environment",
+  "style",
+  "lighting",
+  "color",
+  "camera",
+  "composition",
+  "material",
+  "rendering"
+];
 
 const state = {
   settings: null,
@@ -195,9 +208,10 @@ function createEmptyPanelData() {
         zh: ""
       }
     },
-    structuredPrompt: null,
-    analysis: null,
-    keywords: [],
+    ratioChosen: false,
+    sections: {},
+    keywords: {},
+    languages: [],
     structureOpen: false
   };
 }
@@ -286,6 +300,7 @@ function bindEvents() {
     const button = event.target.closest("[data-ratio]");
     if (!button) return;
     state.panelData.aspectRatio = button.dataset.ratio;
+    state.panelData.ratioChosen = true;
     renderRatioButtons();
     persistPanelImageCache();
   });
@@ -331,8 +346,13 @@ function renderRatioButtons() {
   }).join("");
 }
 
+// Keywords follow the prompt language shown, falling back to English.
 function renderKeywords() {
-  const keywords = state.panelData.keywords || [];
+  const byLanguage = state.panelData.keywords || {};
+  const keywords = (byLanguage[getCurrentLanguage()]?.length ? byLanguage[getCurrentLanguage()] : byLanguage.en || []).slice(
+    0,
+    MAX_VISIBLE_KEYWORDS
+  );
   els.keywords.classList.toggle("pg-hidden", keywords.length === 0);
   els.keywords.innerHTML = keywords
     .map((keyword) => `<button class="pg-keyword" data-keyword="${escapeHtml(keyword)}" type="button">${escapeHtml(keyword)}</button>`)
@@ -349,9 +369,32 @@ function syncSourceMeta(event) {
   const { naturalWidth, naturalHeight } = els.previewImage;
   if (event?.type === "load" && naturalWidth && naturalHeight) {
     parts.push(`${naturalWidth} × ${naturalHeight}`);
+    // Generate in the source's shape unless the user picked a ratio.
+    if (!state.panelData.ratioChosen) {
+      state.panelData.aspectRatio = getNearestRatio(naturalWidth, naturalHeight);
+      renderRatioButtons();
+    }
   }
   els.imageUrl.textContent = parts.filter(Boolean).join(" · ");
   els.imageUrl.title = source.imageUrl || "";
+}
+
+// Compares on a log scale so 4:3 and 3:4 are equally far from 1:1.
+function getNearestRatio(width, height) {
+  const target = Math.log(width / height);
+  let best = RATIO_OPTIONS[0];
+  let bestDistance = Infinity;
+
+  for (const ratio of RATIO_OPTIONS) {
+    const [w, h] = ratio.split(":").map(Number);
+    const distance = Math.abs(Math.log(w / h) - target);
+    if (distance < bestDistance) {
+      best = ratio;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 function getSourceHost(source) {
@@ -548,23 +591,18 @@ async function analyzeCurrentImage({ force }) {
     });
 
     const cached = {
-      title: result.title || t("panelPromptTitleFallback"),
+      title: pickByUiLanguage(result.title) || t("panelPromptTitleFallback"),
       detail: state.panelData.detail || "full",
       language: state.panelData.language || getDefaultPromptLanguage(),
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
-      structuredPrompt: result.structuredPrompt || null,
-      analysis: result.analysis || null,
-      keywords: Array.isArray(result.keywords) ? result.keywords.slice(0, 8) : [],
+      ratioChosen: state.panelData.ratioChosen,
+      sections: result.sections || {},
+      keywords: result.keywords || {},
+      languages: Array.isArray(result.languages) ? result.languages : ["en"],
       structureOpen: state.panelData.structureOpen || false,
       prompts: {
-        short: {
-          en: result.enPromptShort || "",
-          zh: result.zhPromptShort || ""
-        },
-        full: {
-          en: result.enPromptFull || "",
-          zh: result.zhPromptFull || ""
-        }
+        short: normalizePromptPair(result.prompts?.short),
+        full: normalizePromptPair(result.prompts?.full)
       }
     };
 
@@ -596,28 +634,46 @@ function switchDetail(detail) {
 }
 
 function setPromptLanguage(language) {
-  state.panelData.language = state.settings?.enableChineseRecognition ? language : "en";
+  state.panelData.language = isPromptLanguageAvailable(language) ? language : "en";
   syncPromptControls();
+  renderKeywords();
   renderStructureView();
   persistPanelImageCache();
 }
 
+// Chinese is offered when it is turned on in settings and, once an image has
+// been analyzed, when the model actually returned it.
+function isPromptLanguageAvailable(language) {
+  if (language === "en") return true;
+  if (!state.settings?.enableChineseRecognition) return false;
+  const languages = state.panelData.languages || [];
+  return languages.length === 0 || languages.includes(language);
+}
+
+function pickByUiLanguage(value) {
+  if (typeof value === "string") return value;
+  return value?.[getTranslator().language] || value?.en || value?.zh || "";
+}
+
 function hydratePanelData(data) {
-  const preferredLanguage = data.language || data.languageByDetail?.[data.detail || "full"] || "en";
   state.panelData = {
     title: data.title || t("panelPromptTitleFallback"),
     detail: data.detail || "full",
-    language: state.settings?.enableChineseRecognition ? preferredLanguage : "en",
+    language: data.language || "en",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
-    structuredPrompt: data.structuredPrompt || null,
-    analysis: data.analysis || null,
-    keywords: Array.isArray(data.keywords) ? data.keywords : [],
+    ratioChosen: Boolean(data.ratioChosen),
+    sections: data.sections || {},
+    keywords: data.keywords || {},
+    languages: Array.isArray(data.languages) ? data.languages : [],
     structureOpen: Boolean(data.structureOpen),
     prompts: {
       short: normalizePromptPair(data.prompts?.short),
       full: normalizePromptPair(data.prompts?.full)
     }
   };
+  if (!isPromptLanguageAvailable(state.panelData.language)) {
+    state.panelData.language = "en";
+  }
 
   els.imageTitle.textContent = state.panelData.title || t("panelPromptTitleFallback");
   renderRatioButtons();
@@ -634,7 +690,7 @@ function syncPromptControls() {
   setPressed(els.tabStructure, structureOpen, "aria-selected");
   setPressed(els.detailShort, state.panelData.detail === "short");
   setPressed(els.detailFull, state.panelData.detail === "full");
-  els.langSeg.classList.toggle("pg-hidden", !state.settings?.enableChineseRecognition);
+  els.langSeg.classList.toggle("pg-hidden", !isPromptLanguageAvailable("zh"));
   setPressed(els.langZh, getCurrentLanguage() === "zh");
   setPressed(els.langEn, getCurrentLanguage() === "en");
   els.input.classList.toggle("pg-hidden", structureOpen);
@@ -714,103 +770,27 @@ function renderStructureView() {
 
 function getStructureEntries() {
   const language = getCurrentLanguage();
-  const prompt = language === "en" ? state.panelData.structuredPrompt?.enFull : state.panelData.structuredPrompt?.zhFull;
-  const entries = parseStructuredPrompt(prompt);
-  if (entries.length >= 6 && (language === "en" || entriesHaveChinese(entries))) return orderStructureEntries(entries);
-
-  const fullPrompt = state.panelData.prompts.full?.[language] || "";
-  const labeledEntries = parseStructuredPrompt(fullPrompt);
-  if (labeledEntries.length >= 6 && (language === "en" || entriesHaveChinese(labeledEntries))) {
-    return orderStructureEntries(labeledEntries);
-  }
-
-  const analysisEntries = buildStructureEntriesFromAnalysis(state.panelData.analysis);
-  if (language === "zh" && !entriesHaveChinese(analysisEntries)) return [];
-  return analysisEntries;
-}
-
-function parseStructuredPrompt(prompt) {
-  return String(prompt || "")
-    .split(/[;；]/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const match = part.match(/^([^:：]+)\s*[:：]\s*(.+)$/);
-      if (!match) return null;
-
-      const label = normalizeStructureLabel(match[1]);
-      const value = match[2].trim();
-      return label && value ? { label, value } : null;
-    })
-    .filter(Boolean);
-}
-
-function normalizeStructureLabel(label) {
-  const rawLabel = String(label || "").trim();
-  const normalized = rawLabel.toLowerCase().replace(/\s+/g, "");
-
-  if (/^subject|主体/.test(normalized)) return "subject";
-  if (/^style|风格/.test(normalized)) return "style";
-  if (/^lighting|光线|光影/.test(normalized)) return "lighting";
-  if (/^camera|镜头/.test(normalized)) return "camera";
-  if (/^environment|环境/.test(normalized)) return "environment";
-  if (/^material|材质/.test(normalized)) return "material";
-  if (/^composition|构图/.test(normalized)) return "composition";
-  if (/^rendering|渲染/.test(normalized)) return "rendering";
-  return "";
-}
-
-function orderStructureEntries(entries) {
-  const labelOrder = ["subject", "style", "lighting", "camera", "environment", "material", "composition", "rendering"];
-  const entryMap = new Map();
-
-  for (const entry of entries) {
-    if (!entryMap.has(entry.label)) entryMap.set(entry.label, entry);
-  }
-
-  return labelOrder.map((label) => entryMap.get(label)).filter(Boolean);
-}
-
-function entriesHaveChinese(entries) {
-  return entries.some((entry) => /[\u4e00-\u9fff]/.test(entry.value));
+  const sections = state.panelData.sections || {};
+  return STRUCTURE_KEYS.map((key) => ({
+    label: key,
+    value: sections[key]?.[language] || sections[key]?.en || ""
+  })).filter((entry) => entry.value);
 }
 
 function getStructureLabel(key) {
   const labelMap = {
     subject: "structureSubject",
+    environment: "structureEnvironment",
     style: "structureStyle",
     lighting: "structureLighting",
+    color: "structureColor",
     camera: "structureCamera",
-    environment: "structureEnvironment",
-    material: "structureMaterial",
     composition: "structureComposition",
+    material: "structureMaterial",
     rendering: "structureRendering"
   };
 
   return t(labelMap[key] || key);
-}
-
-function buildStructureEntriesFromAnalysis(analysis) {
-  if (!analysis || typeof analysis !== "object") return [];
-
-  const rows = [
-    ["subject", joinValues([analysis.subject?.main, ...(analysis.subject?.attributes || []), analysis.subject?.action])],
-    ["style", joinValues([analysis.style?.medium, analysis.style?.genre, analysis.style?.mood, analysis.style?.referenceLook])],
-    ["lighting", joinValues([analysis.lighting?.direction, analysis.lighting?.quality, analysis.lighting?.effect, analysis.lighting?.timeOfDay])],
-    ["camera", joinValues([analysis.camera?.focalLength, analysis.camera?.aperture, analysis.camera?.angle, analysis.camera?.shotType, analysis.camera?.depthOfField])],
-    ["environment", joinValues([analysis.environment?.sceneType, analysis.environment?.backgroundMaterial, analysis.environment?.spatialRelation])],
-    ["material", joinValues([analysis.material?.surface, analysis.material?.microDetail, ...(analysis.material?.opticalProperties || [])])],
-    ["composition", joinValues([analysis.composition?.layout, analysis.composition?.subjectPlacement, analysis.composition?.foreground, analysis.composition?.background, analysis.composition?.leadingLines, analysis.composition?.symmetry])],
-    ["rendering", joinValues([analysis.rendering?.colorGrade, ...(analysis.rendering?.deviceLook || []), ...(analysis.rendering?.priorityTerms || [])])]
-  ];
-
-  return rows
-    .map(([label, value]) => ({ label, value }))
-    .filter((entry) => entry.value);
-}
-
-function joinValues(values) {
-  return values.filter(Boolean).join("，");
 }
 
 function escapeHtml(text) {
