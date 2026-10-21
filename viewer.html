@@ -1,27 +1,28 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>图透镜 Image Lens 结果页</title>
+    <title>Image Lens Viewer</title>
     <link rel="stylesheet" href="./viewer.css" />
   </head>
   <body>
     <main class="page">
       <section class="glass hero">
         <div class="hero-copy">
-          <p class="eyebrow">图透镜 Image Lens</p>
-          <h1>提示词</h1>
-          <p id="prompt" class="prompt">载入中...</p>
+          <p id="viewer-eyebrow" class="eyebrow">Image Lens</p>
+          <h1 id="viewer-heading">Prompt</h1>
+          <p id="prompt" class="prompt">Loading...</p>
         </div>
         <div class="hero-actions">
-          <button id="copy-prompt" type="button">复制提示词</button>
-          <button id="download-images" type="button">下载图片</button>
+          <button id="copy-prompt" type="button">Copy Prompt</button>
+          <button id="download-images" type="button">Download Images</button>
         </div>
       </section>
       <section id="gallery" class="gallery"></section>
     </main>
 
+    <script src="./i18n.js"></script>
     <script src="./viewer.js"></script>
   </body>
 </html>

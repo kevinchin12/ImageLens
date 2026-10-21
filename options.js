@@ -5,6 +5,8 @@ const promptProviderField = document.querySelector('[name="promptProvider"]');
 const imageProviderField = document.querySelector('[name="imageProvider"]');
 const imageGenerationEnabledField = document.querySelector('[name="imageGenerationEnabled"]');
 const imageSettingsGroup = document.getElementById("image-settings-group");
+const uiLanguageField = document.querySelector('[name="uiLanguage"]');
+const donationWidgetSlot = document.getElementById("donation-widget-slot");
 const promptModelHelp = document.getElementById("prompt-model-help");
 const imageModelHelp = document.getElementById("image-model-help");
 const promptBaseUrlHelp = document.getElementById("prompt-base-url-help");
@@ -16,12 +18,24 @@ const PROVIDER_DOCS = {
 };
 
 let currentSettings = null;
+let currentLanguagePreference = uiLanguageField?.value || "auto";
 let promptProfileDrafts = {};
 let imageProfileDrafts = {};
 
 init();
 
 async function init() {
+  renderLanguageChoices();
+  renderProviderChoices();
+  applyLanguage(currentLanguagePreference);
+
+  uiLanguageField?.addEventListener("change", handleLanguagePreferenceChange);
+  imageGenerationEnabledField?.addEventListener("change", syncImageSettingsVisibility);
+  promptProviderField?.addEventListener("change", handlePromptProviderChange);
+  imageProviderField?.addEventListener("change", handleImageProviderChange);
+  form.addEventListener("submit", handleSubmit);
+  docButton.addEventListener("click", openDocs);
+
   if (!hasExtensionRuntime()) {
     setStandaloneMode();
     return;
@@ -30,95 +44,68 @@ async function init() {
   try {
     const settings = await sendMessage({ type: "get-settings" });
     currentSettings = settings;
+    currentLanguagePreference = settings.uiLanguage || "auto";
     promptProfileDrafts = cloneProfiles(settings.promptProviderProfiles);
     imageProfileDrafts = cloneProfiles(settings.imageProviderProfiles);
     hydrateForm(settings);
-    statusEl.textContent = "设置已载入。";
+    applyLanguage(currentLanguagePreference);
+    statusEl.textContent = t("statusLoaded");
   } catch (error) {
-    statusEl.textContent = error.message || "读取设置失败。";
+    statusEl.textContent = error.message || t("statusLoadFailed");
   }
 }
 
-form.addEventListener("submit", async (event) => {
+async function handleSubmit(event) {
   event.preventDefault();
 
   if (!hasExtensionRuntime()) {
-    statusEl.textContent = "请从 Chrome 扩展的设置页打开，不要直接打开本地 options.html 文件。";
+    statusEl.textContent = t("statusOpenExtension");
     return;
   }
 
   updatePromptDraftFromForm();
   updateImageDraftFromForm();
 
+  const formData = new FormData(form);
   const payload = {
+    provider: promptProviderField?.value || "gemini",
     promptProvider: promptProviderField?.value || "gemini",
     imageProvider: imageProviderField?.value || "gemini",
     apiMode: "direct",
-    promptApiKey: getField("promptApiKey")?.value || "",
-    promptModel: getField("promptModel")?.value || "",
-    promptBaseUrl: getField("promptBaseUrl")?.value || "",
+    uiLanguage: uiLanguageField?.value || formData.get("uiLanguage") || "auto",
+    promptApiKey: String(formData.get("promptApiKey") || ""),
+    promptModel: String(formData.get("promptModel") || ""),
+    promptBaseUrl: String(formData.get("promptBaseUrl") || ""),
     autoAnalyze: getField("autoAnalyze")?.checked || false,
+    enableChineseRecognition: getField("enableChineseRecognition")?.checked || false,
     imageGenerationEnabled: getField("imageGenerationEnabled")?.checked || false,
-    imageApiKey: getField("imageApiKey")?.value || "",
-    imageModel: getField("imageModel")?.value || "",
-    imageBaseUrl: getField("imageBaseUrl")?.value || "",
+    imageApiKey: String(formData.get("imageApiKey") || ""),
+    imageModel: String(formData.get("imageModel") || ""),
+    imageBaseUrl: String(formData.get("imageBaseUrl") || ""),
     customProxyUrl: "",
     customProxyToken: ""
   };
 
+  currentLanguagePreference = payload.uiLanguage;
+  applyLanguage(currentLanguagePreference);
+
   try {
-    statusEl.textContent = "保存中...";
+    statusEl.textContent = t("statusSaving");
     const saved = await sendMessage({ type: "save-settings", payload });
     currentSettings = saved;
     promptProfileDrafts = cloneProfiles(saved.promptProviderProfiles);
     imageProfileDrafts = cloneProfiles(saved.imageProviderProfiles);
     hydrateForm(saved);
-    statusEl.textContent = "设置已保存。";
+    applyLanguage(saved.uiLanguage || "auto");
+    statusEl.textContent = t("statusSaved");
   } catch (error) {
-    statusEl.textContent = error.message || "保存失败。";
+    statusEl.textContent = error.message || t("statusSaveFailed");
   }
-});
+}
 
-imageGenerationEnabledField?.addEventListener("change", syncImageSettingsVisibility);
-promptProviderField?.addEventListener("change", handlePromptProviderChange);
-imageProviderField?.addEventListener("change", handleImageProviderChange);
-
-docButton.addEventListener("click", () => {
-  const provider = promptProviderField?.value || "gemini";
-  const url = PROVIDER_DOCS[provider] || PROVIDER_DOCS.gemini;
-  if (chrome?.tabs?.create) {
-    chrome.tabs.create({ url });
-    return;
-  }
-  window.open(url, "_blank", "noopener");
-});
-
-function hydrateForm(settings) {
-  if (promptProviderField) {
-    promptProviderField.value = settings.promptProvider || "gemini";
-  }
-  if (imageProviderField) {
-    imageProviderField.value = settings.imageProvider || "gemini";
-  }
-
-  hydratePromptFields(
-    settings.promptProvider || "gemini",
-    settings.promptProviderProfiles?.[settings.promptProvider || "gemini"] || {
-      apiKey: settings.promptApiKey,
-      model: settings.promptModel,
-      baseUrl: settings.promptBaseUrl,
-      autoAnalyze: settings.autoAnalyze
-    }
-  );
-  hydrateImageFields(
-    settings.imageProvider || "gemini",
-    settings.imageProviderProfiles?.[settings.imageProvider || "gemini"] || {
-      apiKey: settings.imageApiKey,
-      model: settings.imageModel,
-      baseUrl: settings.imageBaseUrl,
-      imageGenerationEnabled: settings.imageGenerationEnabled
-    }
-  );
+function handleLanguagePreferenceChange() {
+  currentLanguagePreference = uiLanguageField?.value || "auto";
+  applyLanguage(currentLanguagePreference);
 }
 
 function handlePromptProviderChange() {
@@ -127,9 +114,11 @@ function handlePromptProviderChange() {
   const provider = promptProviderField?.value || "gemini";
   currentSettings = {
     ...(currentSettings || {}),
-    promptProvider: provider
+    promptProvider: provider,
+    provider
   };
   hydratePromptFields(provider, promptProfileDrafts[provider] || {});
+  syncDocsButton(provider);
 }
 
 function handleImageProviderChange() {
@@ -143,9 +132,43 @@ function handleImageProviderChange() {
   hydrateImageFields(provider, imageProfileDrafts[provider] || {});
 }
 
+function hydrateForm(settings) {
+  currentSettings = settings;
+  currentLanguagePreference = settings.uiLanguage || currentLanguagePreference || "auto";
+
+  setFieldValue("uiLanguage", currentLanguagePreference);
+  setFieldValue("promptProvider", settings.promptProvider || "gemini");
+  setFieldValue("imageProvider", settings.imageProvider || "gemini");
+  setCheckboxValue("enableChineseRecognition", settings.enableChineseRecognition);
+
+  hydratePromptFields(
+    settings.promptProvider || "gemini",
+    settings.promptProviderProfiles?.[settings.promptProvider || "gemini"] || {
+      apiKey: settings.promptApiKey,
+      model: settings.promptModel,
+      baseUrl: settings.promptBaseUrl,
+      autoAnalyze: settings.autoAnalyze
+    }
+  );
+  hydrateImageFields(
+    settings.imageProvider || "gemini",
+    settings.imageProviderProfiles?.[settings.imageProvider || "gemini"] || {
+      imageGenerationEnabled: settings.imageGenerationEnabled,
+      apiKey: settings.imageApiKey,
+      model: settings.imageModel,
+      baseUrl: settings.imageBaseUrl
+    }
+  );
+
+  renderLanguageChoices();
+  renderProviderChoices();
+  syncImageSettingsVisibility();
+  syncDocsButton(settings.promptProvider || "gemini");
+}
+
 function hydratePromptFields(provider, source) {
   const merged = normalizePromptProfile(provider, source);
-
+  setFieldValue("promptProvider", provider);
   setFieldValue("promptApiKey", merged.apiKey);
   setFieldValue("promptModel", merged.model);
   setFieldValue("promptBaseUrl", merged.baseUrl);
@@ -155,13 +178,13 @@ function hydratePromptFields(provider, source) {
 
 function hydrateImageFields(provider, source) {
   const merged = normalizeImageProfile(provider, source);
-
+  setFieldValue("imageProvider", provider);
   setCheckboxValue("imageGenerationEnabled", merged.imageGenerationEnabled);
   setFieldValue("imageApiKey", merged.apiKey);
   setFieldValue("imageModel", merged.model);
   setFieldValue("imageBaseUrl", merged.baseUrl);
-  syncImageSettingsVisibility();
   syncImageProviderUI(provider);
+  syncImageSettingsVisibility();
 }
 
 function updatePromptDraftFromForm(provider = promptProviderField?.value || "gemini") {
@@ -182,54 +205,209 @@ function updateImageDraftFromForm(provider = imageProviderField?.value || "gemin
   });
 }
 
-function syncPromptProviderUI(provider) {
-  const isOpenAICompatible = provider === "openai-compatible";
-  const promptModelField = getField("promptModel");
-  const promptBaseUrlField = getField("promptBaseUrl");
+function renderLanguageChoices() {
+  if (!uiLanguageField) return;
 
-  if (promptModelField) {
-    promptModelField.placeholder = isOpenAICompatible ? "gpt-5.5" : "gemini-3.1-pro-preview";
-  }
-  if (promptBaseUrlField) {
-    promptBaseUrlField.placeholder = isOpenAICompatible
-      ? "https://api.openai.com/v1"
-      : "https://generativelanguage.googleapis.com/v1beta";
+  const current = uiLanguageField.value || currentLanguagePreference || "auto";
+  uiLanguageField.innerHTML = [
+    { value: "auto", label: t("languageAuto") },
+    { value: "zh", label: t("languageZh") },
+    { value: "en", label: t("languageEn") }
+  ]
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+  uiLanguageField.value = current;
+}
+
+function renderProviderChoices() {
+  renderProviderSelect(promptProviderField, promptProviderField?.value || currentSettings?.promptProvider || "gemini");
+  renderProviderSelect(imageProviderField, imageProviderField?.value || currentSettings?.imageProvider || "gemini");
+}
+
+function renderProviderSelect(field, current) {
+  if (!field) return;
+
+  field.innerHTML = [
+    { value: "gemini", label: t("providerGemini") },
+    { value: "openai-compatible", label: t("providerOpenAICompatible") }
+  ]
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+  field.value = current;
+}
+
+function applyLanguage(preference) {
+  const translator = globalThis.ImageLensI18n.createTranslator(preference);
+  document.documentElement.lang = translator.messages.htmlLang;
+  document.title = translator.t("optionsTitle");
+
+  setText("hero-eyebrow", translator.t("heroEyebrow"));
+  setText("hero-title", translator.t("heroTitle"));
+  setText("hero-subtitle", translator.t("heroSubtitle"));
+  setText("ui-language-section-title", translator.t("languageLabel"));
+  setText("ui-language-section-description", translator.t("languageSectionDescription"));
+  setText("ui-language-label", translator.t("languageLabel"));
+  setText("analyze-section-title", translator.t("analyzeSectionTitle"));
+  setText("analyze-section-description", translator.t("analyzeSectionDescription"));
+  setText("prompt-provider-label", translator.t("promptProviderLabel"));
+  setText("prompt-base-url-label", translator.t("promptBaseUrlLabel"));
+  setText("prompt-api-key-label", getPromptApiKeyLabel(promptProviderField?.value || "gemini", translator));
+  setText("local-storage-note", translator.t("localStorageNote"));
+  setText("prompt-model-label", translator.t("promptModelLabel"));
+  setText("auto-analyze-label", translator.t("autoAnalyzeLabel"));
+  setText("enable-chinese-recognition-label", translator.t("enableChineseRecognitionLabel"));
+  setText("generate-section-title", translator.t("generateSectionTitle"));
+  setText("generate-section-description", translator.t("generateSectionDescription"));
+  setText("image-generation-enabled-label", translator.t("imageGenerationEnabledLabel"));
+  setText("image-provider-label", translator.t("imageProviderLabel"));
+  setText("image-base-url-label", translator.t("imageBaseUrlLabel"));
+  setText("image-api-key-label", getImageApiKeyLabel(imageProviderField?.value || "gemini", translator));
+  setText("same-key-note", translator.t("sameKeyNote"));
+  setText("image-model-label", translator.t("imageModelLabel"));
+  setText("save-button", translator.t("saveButton"));
+  setText("open-doc", translator.t("docsButton"));
+  setText("options-note", translator.t("optionsNote"));
+
+  setPlaceholder(
+    "promptApiKey",
+    translator.language === "zh" ? "请填入对应服务商的 API Key" : "Enter the provider API key"
+  );
+  setPlaceholder("promptBaseUrl", getProviderBaseUrlPlaceholder(promptProviderField?.value || "gemini"));
+  setPlaceholder("promptModel", getPromptModelPlaceholder(promptProviderField?.value || "gemini"));
+  setPlaceholder(
+    "imageApiKey",
+    translator.language === "zh" ? "请填入对应服务商的 API Key" : "Enter the provider API key"
+  );
+  setPlaceholder("imageBaseUrl", getProviderBaseUrlPlaceholder(imageProviderField?.value || "gemini"));
+  setPlaceholder("imageModel", getImageModelPlaceholder(imageProviderField?.value || "gemini"));
+
+  renderLanguageChoices();
+  renderProviderChoices();
+  syncPromptProviderUI(promptProviderField?.value || "gemini");
+  syncImageProviderUI(imageProviderField?.value || "gemini");
+  renderDonationWidget(translator);
+}
+
+function syncPromptProviderUI(provider) {
+  const translator = globalThis.ImageLensI18n.createTranslator(currentLanguagePreference);
+  setText("prompt-api-key-label", getPromptApiKeyLabel(provider, translator));
+  setPlaceholder("promptBaseUrl", getProviderBaseUrlPlaceholder(provider));
+  setPlaceholder("promptModel", getPromptModelPlaceholder(provider));
+  if (promptBaseUrlHelp) {
+    promptBaseUrlHelp.textContent =
+      provider === "openai-compatible"
+        ? translator.t("promptBaseUrlHelpOpenAICompatible")
+        : translator.t("promptBaseUrlHelpGemini");
   }
   if (promptModelHelp) {
-    promptModelHelp.textContent = isOpenAICompatible
-      ? "OpenAI 兼容识图默认可先用 gpt-5.5。"
-      : "Gemini 例如 gemini-3.1-pro-preview。";
-  }
-  if (promptBaseUrlHelp) {
-    promptBaseUrlHelp.textContent = isOpenAICompatible
-      ? "OpenAI Compatible 默认带入 https://api.openai.com/v1，也可以改成其他兼容网关。"
-      : "Gemini 默认使用 Google 官方 REST 地址。";
+    promptModelHelp.textContent =
+      provider === "openai-compatible"
+        ? translator.t("promptModelHelpOpenAICompatible")
+        : translator.t("promptModelHelpGemini");
   }
 }
 
 function syncImageProviderUI(provider) {
-  const isOpenAICompatible = provider === "openai-compatible";
-  const imageModelField = getField("imageModel");
-  const imageBaseUrlField = getField("imageBaseUrl");
-
-  if (imageModelField) {
-    imageModelField.placeholder = isOpenAICompatible ? "gpt-image-2" : "gemini-3.1-flash-image-preview";
-  }
-  if (imageBaseUrlField) {
-    imageBaseUrlField.placeholder = isOpenAICompatible
-      ? "https://api.openai.com/v1"
-      : "https://generativelanguage.googleapis.com/v1beta";
+  const translator = globalThis.ImageLensI18n.createTranslator(currentLanguagePreference);
+  setText("image-api-key-label", getImageApiKeyLabel(provider, translator));
+  setPlaceholder("imageBaseUrl", getProviderBaseUrlPlaceholder(provider));
+  setPlaceholder("imageModel", getImageModelPlaceholder(provider));
+  if (imageBaseUrlHelp) {
+    imageBaseUrlHelp.textContent =
+      provider === "openai-compatible"
+        ? translator.t("imageBaseUrlHelpOpenAICompatible")
+        : translator.t("imageBaseUrlHelpGemini");
   }
   if (imageModelHelp) {
-    imageModelHelp.textContent = isOpenAICompatible
-      ? "OpenAI 兼容生图默认可先用 gpt-image-2；不同兼容平台支持度可能不同。"
-      : "Gemini 例如 gemini-3.1-flash-image-preview；不同账号、地区或套餐的可用模型可能不同。";
+    imageModelHelp.textContent =
+      provider === "openai-compatible"
+        ? translator.t("imageModelHelpOpenAICompatible")
+        : translator.t("imageModelHelpGemini");
   }
-  if (imageBaseUrlHelp) {
-    imageBaseUrlHelp.textContent = isOpenAICompatible
-      ? "OpenAI Compatible 默认带入 https://api.openai.com/v1，也可以改成其他兼容网关。"
-      : "Gemini 默认使用 Google 官方 REST 地址。";
+}
+
+function getPromptApiKeyLabel(provider, translator) {
+  const providerName =
+    provider === "openai-compatible"
+      ? translator.t("providerOpenAICompatible")
+      : translator.t("providerGemini");
+  return translator.language === "zh"
+    ? `${providerName} API Key（识图）`
+    : `${providerName} API Key for Analysis`;
+}
+
+function getImageApiKeyLabel(provider, translator) {
+  const providerName =
+    provider === "openai-compatible"
+      ? translator.t("providerOpenAICompatible")
+      : translator.t("providerGemini");
+  return translator.language === "zh"
+    ? `${providerName} API Key（生图）`
+    : `${providerName} API Key for Image Generation`;
+}
+
+function getPromptModelPlaceholder(provider) {
+  return provider === "openai-compatible" ? "gpt-5.5" : "gemini-3.1-pro-preview";
+}
+
+function getImageModelPlaceholder(provider) {
+  return provider === "openai-compatible" ? "gpt-image-2" : "gemini-3.1-flash-image-preview";
+}
+
+function getProviderBaseUrlPlaceholder(provider) {
+  return provider === "openai-compatible"
+    ? "https://api.openai.com/v1"
+    : "https://generativelanguage.googleapis.com/v1beta";
+}
+
+function renderDonationWidget(translator) {
+  if (typeof globalThis.createDonationWidget !== "function" || !donationWidgetSlot) {
+    return;
   }
+
+  globalThis.createDonationWidget(donationWidgetSlot, {
+    title: translator.t("donateTitle"),
+    description: translator.t("donateDescription"),
+    modalTitle: translator.t("donateModalTitle"),
+    modalDescription: translator.t("donateModalDescription"),
+    buttonLabel: translator.t("donateButton"),
+    closeLabel: translator.t("donateClose"),
+    koFiLabel: translator.t("donateKofi"),
+    koFiHint: translator.t("donateKofiHint"),
+    koFiUrl: "https://ko-fi.com/kevinchin1235",
+    chinaLabel: translator.t("donateChina"),
+    chinaHint: translator.t("donateChinaHint"),
+    qrAlt: translator.t("donateQrAlt"),
+    scanHint: translator.t("donateScanHint"),
+    placeholderText: translator.t("donatePlaceholder"),
+    qrImageUrl: "./assets/wechat-donation-qr.png"
+  });
+}
+
+function openDocs() {
+  const provider = promptProviderField?.value || "gemini";
+  const url = PROVIDER_DOCS[provider] || PROVIDER_DOCS.gemini;
+
+  if (chrome?.tabs?.create) {
+    chrome.tabs.create({ url });
+    return;
+  }
+
+  window.open(url, "_blank", "noopener");
+}
+
+function syncDocsButton(provider) {
+  docButton.dataset.provider = provider;
+}
+
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+}
+
+function setPlaceholder(name, value) {
+  const field = getField(name);
+  if (field) field.placeholder = value;
 }
 
 function setFieldValue(name, value) {
@@ -325,7 +503,11 @@ function setStandaloneMode() {
   for (const field of form.querySelectorAll("input, select, button[type='submit']")) {
     field.disabled = true;
   }
-  statusEl.textContent = "当前页面是本地预览。请到 chrome://extensions 打开“图透镜 Image Lens Preview”的扩展设置页进行配置。";
+  statusEl.textContent = t("statusStandalone");
+}
+
+function t(key, values) {
+  return globalThis.ImageLensI18n.createTranslator(currentLanguagePreference).t(key, values);
 }
 
 async function sendMessage(message) {

@@ -232,4 +232,5 @@ button.primary {
   h1 {
     font-size: clamp(28px, 7vw, 42px);
   }
+
 }
