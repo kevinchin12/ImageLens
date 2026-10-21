@@ -44,7 +44,7 @@
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -90,7 +90,7 @@
 .donation-scan-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -167,7 +167,7 @@
 
 .donation-method-text small {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .donation-qr-panel {
@@ -222,7 +222,7 @@
   border-radius: 8px;
   background: none;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .donation-dismiss:hover {

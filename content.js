@@ -4,6 +4,18 @@ const DEFAULT_TRANSLATOR = globalThis.ImageLensI18n.createTranslator("auto");
 
 const MIN_SELECTION_SIZE = 16;
 const MIN_BACKGROUND_IMAGE_SIZE = 48;
+// Same order as SECTION_KEYS in prompt-analysis.js.
+const STRUCTURE_KEYS = [
+  "subject",
+  "environment",
+  "style",
+  "lighting",
+  "color",
+  "camera",
+  "composition",
+  "material",
+  "rendering"
+];
 
 const state = {
   settings: null,
@@ -28,7 +40,7 @@ const ICONS = {
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   refresh: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
-  sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></svg>'
+  wand: '<svg viewBox="0 0 24 24"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/></svg>'
 };
 
 // Width and height of the little shape drawn in each ratio button.
@@ -96,7 +108,7 @@ panel.innerHTML = `
       </div>
     </div>
 
-    <div class="pg-keywords pg-hidden" id="pg-keywords"></div>
+    <div class="pg-section-chips pg-hidden" id="pg-section-chips"></div>
 
     <div class="pg-actions">
       <button class="pg-btn pg-btn-primary" id="pg-copy" type="button">${ICONS.copy}<span id="pg-copy-label"></span></button>
@@ -108,7 +120,7 @@ panel.innerHTML = `
         <span id="pg-generate-meta"></span>
       </div>
       <div class="pg-ratios" id="pg-ratios" role="radiogroup"></div>
-      <button class="pg-btn pg-btn-secondary" id="pg-generate" type="button">${ICONS.sparkle}<span id="pg-generate-label"></span></button>
+      <button class="pg-btn pg-btn-secondary" id="pg-generate" type="button">${ICONS.wand}<span id="pg-generate-label"></span></button>
       <div class="pg-inline-preview" id="pg-inline-preview">
         <div class="pg-inline-grid" id="pg-inline-grid"></div>
       </div>
@@ -146,7 +158,7 @@ const els = {
   langEn: panel.querySelector("#pg-lang-en"),
   structure: panel.querySelector("#pg-structure"),
   structureGrid: panel.querySelector("#pg-structure-grid"),
-  keywords: panel.querySelector("#pg-keywords"),
+  sectionChips: panel.querySelector("#pg-section-chips"),
   generateSection: panel.querySelector("#pg-generate-section"),
   ratios: panel.querySelector("#pg-ratios"),
   inlinePreview: panel.querySelector("#pg-inline-preview"),
@@ -195,9 +207,9 @@ function createEmptyPanelData() {
         zh: ""
       }
     },
-    structuredPrompt: null,
-    analysis: null,
-    keywords: [],
+    ratioChosen: false,
+    sections: {},
+    languages: [],
     structureOpen: false
   };
 }
@@ -286,6 +298,7 @@ function bindEvents() {
     const button = event.target.closest("[data-ratio]");
     if (!button) return;
     state.panelData.aspectRatio = button.dataset.ratio;
+    state.panelData.ratioChosen = true;
     renderRatioButtons();
     persistPanelImageCache();
   });
@@ -299,10 +312,12 @@ function bindEvents() {
     await copyText(text, t("panelPromptCopied"));
   });
 
-  els.keywords.addEventListener("click", async (event) => {
-    const chip = event.target.closest("[data-keyword]");
+  els.sectionChips.addEventListener("click", async (event) => {
+    const chip = event.target.closest("[data-section]");
     if (!chip) return;
-    await copyText(chip.dataset.keyword, t("panelKeywordCopied", { keyword: chip.dataset.keyword }));
+    const entry = getStructureEntries().find((item) => item.label === chip.dataset.section);
+    if (!entry) return;
+    await copyText(entry.value, t("panelSectionCopied", { section: getStructureLabel(entry.label) }));
   });
 
   els.generate.addEventListener("click", () => generateFromCurrentPrompt());
@@ -325,17 +340,22 @@ function renderRatioButtons() {
     const active = ratio === current;
     return `
       <button class="pg-ratio${active ? " is-active" : ""}" data-ratio="${ratio}" type="button" role="radio" aria-checked="${active}">
-        <i style="width:${width}px;height:${height}px"></i>${ratio}
+        <span class="pg-ratio-shape"><i style="width:${width}px;height:${height}px"></i></span><span>${ratio}</span>
       </button>
     `;
   }).join("");
 }
 
-function renderKeywords() {
-  const keywords = state.panelData.keywords || [];
-  els.keywords.classList.toggle("pg-hidden", keywords.length === 0);
-  els.keywords.innerHTML = keywords
-    .map((keyword) => `<button class="pg-keyword" data-keyword="${escapeHtml(keyword)}" type="button">${escapeHtml(keyword)}</button>`)
+// One button per filled-in structure section; clicking copies that section in
+// the prompt language shown.
+function renderSectionChips() {
+  const entries = getStructureEntries();
+  els.sectionChips.classList.toggle("pg-hidden", entries.length === 0);
+  els.sectionChips.innerHTML = entries
+    .map(
+      (entry) =>
+        `<button class="pg-section-chip" data-section="${entry.label}" title="${escapeHtml(entry.value)}" type="button">${escapeHtml(getStructureLabel(entry.label))}</button>`
+    )
     .join("");
 }
 
@@ -349,9 +369,32 @@ function syncSourceMeta(event) {
   const { naturalWidth, naturalHeight } = els.previewImage;
   if (event?.type === "load" && naturalWidth && naturalHeight) {
     parts.push(`${naturalWidth} × ${naturalHeight}`);
+    // Generate in the source's shape unless the user picked a ratio.
+    if (!state.panelData.ratioChosen) {
+      state.panelData.aspectRatio = getNearestRatio(naturalWidth, naturalHeight);
+      renderRatioButtons();
+    }
   }
   els.imageUrl.textContent = parts.filter(Boolean).join(" · ");
   els.imageUrl.title = source.imageUrl || "";
+}
+
+// Compares on a log scale so 4:3 and 3:4 are equally far from 1:1.
+function getNearestRatio(width, height) {
+  const target = Math.log(width / height);
+  let best = RATIO_OPTIONS[0];
+  let bestDistance = Infinity;
+
+  for (const ratio of RATIO_OPTIONS) {
+    const [w, h] = ratio.split(":").map(Number);
+    const distance = Math.abs(Math.log(w / h) - target);
+    if (distance < bestDistance) {
+      best = ratio;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 function getSourceHost(source) {
@@ -508,7 +551,7 @@ async function openPanelForSource(source) {
   state.panelData.language = getDefaultPromptLanguage();
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
   renderRatioButtons();
-  renderKeywords();
+  renderSectionChips();
   syncGenerationVisibility();
   syncPromptControls();
   renderStructureView();
@@ -548,23 +591,17 @@ async function analyzeCurrentImage({ force }) {
     });
 
     const cached = {
-      title: result.title || t("panelPromptTitleFallback"),
+      title: pickByUiLanguage(result.title) || t("panelPromptTitleFallback"),
       detail: state.panelData.detail || "full",
       language: state.panelData.language || getDefaultPromptLanguage(),
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
-      structuredPrompt: result.structuredPrompt || null,
-      analysis: result.analysis || null,
-      keywords: Array.isArray(result.keywords) ? result.keywords.slice(0, 8) : [],
+      ratioChosen: state.panelData.ratioChosen,
+      sections: result.sections || {},
+      languages: Array.isArray(result.languages) ? result.languages : ["en"],
       structureOpen: state.panelData.structureOpen || false,
       prompts: {
-        short: {
-          en: result.enPromptShort || "",
-          zh: result.zhPromptShort || ""
-        },
-        full: {
-          en: result.enPromptFull || "",
-          zh: result.zhPromptFull || ""
-        }
+        short: normalizePromptPair(result.prompts?.short),
+        full: normalizePromptPair(result.prompts?.full)
       }
     };
 
@@ -596,32 +633,49 @@ function switchDetail(detail) {
 }
 
 function setPromptLanguage(language) {
-  state.panelData.language = state.settings?.enableChineseRecognition ? language : "en";
+  state.panelData.language = isPromptLanguageAvailable(language) ? language : "en";
   syncPromptControls();
+  renderSectionChips();
   renderStructureView();
   persistPanelImageCache();
 }
 
+// Chinese is offered when it is turned on in settings and, once an image has
+// been analyzed, when the model actually returned it.
+function isPromptLanguageAvailable(language) {
+  if (language === "en") return true;
+  if (!state.settings?.enableChineseRecognition) return false;
+  const languages = state.panelData.languages || [];
+  return languages.length === 0 || languages.includes(language);
+}
+
+function pickByUiLanguage(value) {
+  if (typeof value === "string") return value;
+  return value?.[getTranslator().language] || value?.en || value?.zh || "";
+}
+
 function hydratePanelData(data) {
-  const preferredLanguage = data.language || data.languageByDetail?.[data.detail || "full"] || "en";
   state.panelData = {
     title: data.title || t("panelPromptTitleFallback"),
     detail: data.detail || "full",
-    language: state.settings?.enableChineseRecognition ? preferredLanguage : "en",
+    language: data.language || "en",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
-    structuredPrompt: data.structuredPrompt || null,
-    analysis: data.analysis || null,
-    keywords: Array.isArray(data.keywords) ? data.keywords : [],
+    ratioChosen: Boolean(data.ratioChosen),
+    sections: data.sections || {},
+    languages: Array.isArray(data.languages) ? data.languages : [],
     structureOpen: Boolean(data.structureOpen),
     prompts: {
       short: normalizePromptPair(data.prompts?.short),
       full: normalizePromptPair(data.prompts?.full)
     }
   };
+  if (!isPromptLanguageAvailable(state.panelData.language)) {
+    state.panelData.language = "en";
+  }
 
   els.imageTitle.textContent = state.panelData.title || t("panelPromptTitleFallback");
   renderRatioButtons();
-  renderKeywords();
+  renderSectionChips();
   syncGenerationVisibility();
   syncPromptControls();
   renderStructureView();
@@ -634,7 +688,7 @@ function syncPromptControls() {
   setPressed(els.tabStructure, structureOpen, "aria-selected");
   setPressed(els.detailShort, state.panelData.detail === "short");
   setPressed(els.detailFull, state.panelData.detail === "full");
-  els.langSeg.classList.toggle("pg-hidden", !state.settings?.enableChineseRecognition);
+  els.langSeg.classList.toggle("pg-hidden", !isPromptLanguageAvailable("zh"));
   setPressed(els.langZh, getCurrentLanguage() === "zh");
   setPressed(els.langEn, getCurrentLanguage() === "en");
   els.input.classList.toggle("pg-hidden", structureOpen);
@@ -714,103 +768,27 @@ function renderStructureView() {
 
 function getStructureEntries() {
   const language = getCurrentLanguage();
-  const prompt = language === "en" ? state.panelData.structuredPrompt?.enFull : state.panelData.structuredPrompt?.zhFull;
-  const entries = parseStructuredPrompt(prompt);
-  if (entries.length >= 6 && (language === "en" || entriesHaveChinese(entries))) return orderStructureEntries(entries);
-
-  const fullPrompt = state.panelData.prompts.full?.[language] || "";
-  const labeledEntries = parseStructuredPrompt(fullPrompt);
-  if (labeledEntries.length >= 6 && (language === "en" || entriesHaveChinese(labeledEntries))) {
-    return orderStructureEntries(labeledEntries);
-  }
-
-  const analysisEntries = buildStructureEntriesFromAnalysis(state.panelData.analysis);
-  if (language === "zh" && !entriesHaveChinese(analysisEntries)) return [];
-  return analysisEntries;
-}
-
-function parseStructuredPrompt(prompt) {
-  return String(prompt || "")
-    .split(/[;；]/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const match = part.match(/^([^:：]+)\s*[:：]\s*(.+)$/);
-      if (!match) return null;
-
-      const label = normalizeStructureLabel(match[1]);
-      const value = match[2].trim();
-      return label && value ? { label, value } : null;
-    })
-    .filter(Boolean);
-}
-
-function normalizeStructureLabel(label) {
-  const rawLabel = String(label || "").trim();
-  const normalized = rawLabel.toLowerCase().replace(/\s+/g, "");
-
-  if (/^subject|主体/.test(normalized)) return "subject";
-  if (/^style|风格/.test(normalized)) return "style";
-  if (/^lighting|光线|光影/.test(normalized)) return "lighting";
-  if (/^camera|镜头/.test(normalized)) return "camera";
-  if (/^environment|环境/.test(normalized)) return "environment";
-  if (/^material|材质/.test(normalized)) return "material";
-  if (/^composition|构图/.test(normalized)) return "composition";
-  if (/^rendering|渲染/.test(normalized)) return "rendering";
-  return "";
-}
-
-function orderStructureEntries(entries) {
-  const labelOrder = ["subject", "style", "lighting", "camera", "environment", "material", "composition", "rendering"];
-  const entryMap = new Map();
-
-  for (const entry of entries) {
-    if (!entryMap.has(entry.label)) entryMap.set(entry.label, entry);
-  }
-
-  return labelOrder.map((label) => entryMap.get(label)).filter(Boolean);
-}
-
-function entriesHaveChinese(entries) {
-  return entries.some((entry) => /[\u4e00-\u9fff]/.test(entry.value));
+  const sections = state.panelData.sections || {};
+  return STRUCTURE_KEYS.map((key) => ({
+    label: key,
+    value: sections[key]?.[language] || sections[key]?.en || ""
+  })).filter((entry) => entry.value);
 }
 
 function getStructureLabel(key) {
   const labelMap = {
     subject: "structureSubject",
+    environment: "structureEnvironment",
     style: "structureStyle",
     lighting: "structureLighting",
+    color: "structureColor",
     camera: "structureCamera",
-    environment: "structureEnvironment",
-    material: "structureMaterial",
     composition: "structureComposition",
+    material: "structureMaterial",
     rendering: "structureRendering"
   };
 
   return t(labelMap[key] || key);
-}
-
-function buildStructureEntriesFromAnalysis(analysis) {
-  if (!analysis || typeof analysis !== "object") return [];
-
-  const rows = [
-    ["subject", joinValues([analysis.subject?.main, ...(analysis.subject?.attributes || []), analysis.subject?.action])],
-    ["style", joinValues([analysis.style?.medium, analysis.style?.genre, analysis.style?.mood, analysis.style?.referenceLook])],
-    ["lighting", joinValues([analysis.lighting?.direction, analysis.lighting?.quality, analysis.lighting?.effect, analysis.lighting?.timeOfDay])],
-    ["camera", joinValues([analysis.camera?.focalLength, analysis.camera?.aperture, analysis.camera?.angle, analysis.camera?.shotType, analysis.camera?.depthOfField])],
-    ["environment", joinValues([analysis.environment?.sceneType, analysis.environment?.backgroundMaterial, analysis.environment?.spatialRelation])],
-    ["material", joinValues([analysis.material?.surface, analysis.material?.microDetail, ...(analysis.material?.opticalProperties || [])])],
-    ["composition", joinValues([analysis.composition?.layout, analysis.composition?.subjectPlacement, analysis.composition?.foreground, analysis.composition?.background, analysis.composition?.leadingLines, analysis.composition?.symmetry])],
-    ["rendering", joinValues([analysis.rendering?.colorGrade, ...(analysis.rendering?.deviceLook || []), ...(analysis.rendering?.priorityTerms || [])])]
-  ];
-
-  return rows
-    .map(([label, value]) => ({ label, value }))
-    .filter((entry) => entry.value);
-}
-
-function joinValues(values) {
-  return values.filter(Boolean).join("，");
 }
 
 function escapeHtml(text) {
