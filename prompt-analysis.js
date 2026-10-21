@@ -16,15 +16,11 @@ export const SECTION_KEYS = [
   "rendering"
 ];
 
-const MAX_KEYWORDS = 10;
-const MAX_KEYWORD_LENGTH = 32;
-
 export function buildAnalysisInstructions({ includeChinese = true } = {}) {
   const languageRules = includeChinese
     ? [
         "Every field has an English (en) and a Simplified Chinese (zh) version. Write the English first, then make each zh field a faithful, natural Chinese version of its en field with the same content and detail, not a summary.",
         "- prompt.zh.full: about 150-280 Chinese characters. prompt.zh.short: about 40-80 Chinese characters.",
-        "- keywords.zh: natural Chinese terms of 2-6 characters, in the same order as keywords.en.",
         "- title.zh: at most 12 Chinese characters.",
         "- In zh fields keep numbers, units and lens values as written (85mm, f/1.8) and keep quoted on-image text unchanged."
       ]
@@ -56,7 +52,6 @@ export function buildAnalysisInstructions({ includeChinese = true } = {}) {
     "  rendering: finish and post-processing such as film grain, bloom, sharpness, noise, print texture.",
     "- prompt.en.full: one flowing paragraph of 80-160 words combining all sections in this order: subject and action, environment, style, lighting, color, camera and composition, materials and finish. It must work on its own as a complete prompt.",
     "- prompt.en.short: one or two sentences, 25-45 words, keeping the subject, style, lighting, palette and the single most distinctive detail.",
-    "- keywords.en: 6-10 short tags of 1-3 words for the most distinctive traits of this image, most important first. No generic tags such as photo, image, high quality.",
     "- title.en: 2-6 words naming the image.",
     ...languageRules,
     "",
@@ -82,7 +77,6 @@ function buildExampleShape({ includeChinese }) {
   return {
     sections: Object.fromEntries(SECTION_KEYS.map((key) => [key, pair()])),
     prompt: includeChinese ? { en: prompt, zh: { ...prompt } } : { en: prompt },
-    keywords: includeChinese ? { en: [], zh: [] } : { en: [] },
     title: pair()
   };
 }
@@ -103,7 +97,6 @@ export function buildGeminiResponseSchema({ includeChinese = true } = {}) {
   return objectOf({
     sections: objectOf(Object.fromEntries(SECTION_KEYS.map((key) => [key, perLanguage(text)]))),
     prompt: perLanguage(objectOf({ full: text, short: text })),
-    keywords: perLanguage({ type: "ARRAY", items: text }),
     title: perLanguage(text)
   });
 }
@@ -119,7 +112,6 @@ export function normalizeAnalysisResult(raw, { includeChinese = true } = {}) {
   );
 
   const prompts = { full: {}, short: {} };
-  const keywords = {};
   const title = readPerLanguage(raw.title, languages);
   for (const language of languages) {
     const promptSource = raw.prompt?.[language];
@@ -128,7 +120,6 @@ export function normalizeAnalysisResult(raw, { includeChinese = true } = {}) {
       cleanText(promptSource?.short) || composeFromSections(sections, language, ["subject", "style", "lighting", "color"]);
     prompts.full[language] = full;
     prompts.short[language] = short;
-    keywords[language] = cleanKeywords(raw.keywords?.[language]);
   }
 
   if (!prompts.full.en) return null;
@@ -137,7 +128,6 @@ export function normalizeAnalysisResult(raw, { includeChinese = true } = {}) {
     title,
     sections,
     prompts,
-    keywords,
     // Languages the model actually filled in; the panel hides the others.
     languages: languages.filter((language) => prompts.full[language])
   };
@@ -157,23 +147,6 @@ function composeFromSections(sections, language, keys) {
     .map((key) => sections[key]?.[language])
     .filter(Boolean)
     .join(separator);
-}
-
-function cleanKeywords(value) {
-  const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,，、;；\n]/) : [];
-  const seen = new Set();
-  const result = [];
-
-  for (const item of list) {
-    const keyword = cleanText(item).replace(/^#+/, "").replace(/[.。]+$/, "");
-    const key = keyword.toLowerCase();
-    if (!keyword || keyword.length > MAX_KEYWORD_LENGTH || seen.has(key)) continue;
-    seen.add(key);
-    result.push(keyword);
-    if (result.length === MAX_KEYWORDS) break;
-  }
-
-  return result;
 }
 
 function cleanText(value) {

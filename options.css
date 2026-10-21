@@ -3,8 +3,8 @@
 :root {
   color-scheme: light;
   /* Mac fonts first, then Windows, then Linux; see content.css. */
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Segoe UI", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   --brand: #1765a2;
   --brand-light: #5aa7e2;
@@ -49,7 +49,7 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
-  font: 13.5px/1.55 var(--font);
+  font: 14px/1.55 var(--font);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -275,7 +275,7 @@ select:disabled {
 .key-field input {
   padding-right: 64px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .key-toggle {
@@ -320,7 +320,7 @@ select:disabled {
 
 .provider-option span {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .provider-option:hover {
@@ -402,14 +402,14 @@ select:disabled {
 
 .mono {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .status {
   min-height: 20px;
   margin-top: 16px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .status[data-tone="error"] {

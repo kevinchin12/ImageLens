@@ -4,7 +4,6 @@ const DEFAULT_TRANSLATOR = globalThis.ImageLensI18n.createTranslator("auto");
 
 const MIN_SELECTION_SIZE = 16;
 const MIN_BACKGROUND_IMAGE_SIZE = 48;
-const MAX_VISIBLE_KEYWORDS = 8;
 // Same order as SECTION_KEYS in prompt-analysis.js.
 const STRUCTURE_KEYS = [
   "subject",
@@ -41,7 +40,7 @@ const ICONS = {
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   refresh: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
-  sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></svg>'
+  wand: '<svg viewBox="0 0 24 24"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/></svg>'
 };
 
 // Width and height of the little shape drawn in each ratio button.
@@ -109,7 +108,7 @@ panel.innerHTML = `
       </div>
     </div>
 
-    <div class="pg-keywords pg-hidden" id="pg-keywords"></div>
+    <div class="pg-section-chips pg-hidden" id="pg-section-chips"></div>
 
     <div class="pg-actions">
       <button class="pg-btn pg-btn-primary" id="pg-copy" type="button">${ICONS.copy}<span id="pg-copy-label"></span></button>
@@ -121,7 +120,7 @@ panel.innerHTML = `
         <span id="pg-generate-meta"></span>
       </div>
       <div class="pg-ratios" id="pg-ratios" role="radiogroup"></div>
-      <button class="pg-btn pg-btn-secondary" id="pg-generate" type="button">${ICONS.sparkle}<span id="pg-generate-label"></span></button>
+      <button class="pg-btn pg-btn-secondary" id="pg-generate" type="button">${ICONS.wand}<span id="pg-generate-label"></span></button>
       <div class="pg-inline-preview" id="pg-inline-preview">
         <div class="pg-inline-grid" id="pg-inline-grid"></div>
       </div>
@@ -159,7 +158,7 @@ const els = {
   langEn: panel.querySelector("#pg-lang-en"),
   structure: panel.querySelector("#pg-structure"),
   structureGrid: panel.querySelector("#pg-structure-grid"),
-  keywords: panel.querySelector("#pg-keywords"),
+  sectionChips: panel.querySelector("#pg-section-chips"),
   generateSection: panel.querySelector("#pg-generate-section"),
   ratios: panel.querySelector("#pg-ratios"),
   inlinePreview: panel.querySelector("#pg-inline-preview"),
@@ -210,7 +209,6 @@ function createEmptyPanelData() {
     },
     ratioChosen: false,
     sections: {},
-    keywords: {},
     languages: [],
     structureOpen: false
   };
@@ -314,10 +312,12 @@ function bindEvents() {
     await copyText(text, t("panelPromptCopied"));
   });
 
-  els.keywords.addEventListener("click", async (event) => {
-    const chip = event.target.closest("[data-keyword]");
+  els.sectionChips.addEventListener("click", async (event) => {
+    const chip = event.target.closest("[data-section]");
     if (!chip) return;
-    await copyText(chip.dataset.keyword, t("panelKeywordCopied", { keyword: chip.dataset.keyword }));
+    const entry = getStructureEntries().find((item) => item.label === chip.dataset.section);
+    if (!entry) return;
+    await copyText(entry.value, t("panelSectionCopied", { section: getStructureLabel(entry.label) }));
   });
 
   els.generate.addEventListener("click", () => generateFromCurrentPrompt());
@@ -340,22 +340,22 @@ function renderRatioButtons() {
     const active = ratio === current;
     return `
       <button class="pg-ratio${active ? " is-active" : ""}" data-ratio="${ratio}" type="button" role="radio" aria-checked="${active}">
-        <i style="width:${width}px;height:${height}px"></i>${ratio}
+        <span class="pg-ratio-shape"><i style="width:${width}px;height:${height}px"></i></span><span>${ratio}</span>
       </button>
     `;
   }).join("");
 }
 
-// Keywords follow the prompt language shown, falling back to English.
-function renderKeywords() {
-  const byLanguage = state.panelData.keywords || {};
-  const keywords = (byLanguage[getCurrentLanguage()]?.length ? byLanguage[getCurrentLanguage()] : byLanguage.en || []).slice(
-    0,
-    MAX_VISIBLE_KEYWORDS
-  );
-  els.keywords.classList.toggle("pg-hidden", keywords.length === 0);
-  els.keywords.innerHTML = keywords
-    .map((keyword) => `<button class="pg-keyword" data-keyword="${escapeHtml(keyword)}" type="button">${escapeHtml(keyword)}</button>`)
+// One button per filled-in structure section; clicking copies that section in
+// the prompt language shown.
+function renderSectionChips() {
+  const entries = getStructureEntries();
+  els.sectionChips.classList.toggle("pg-hidden", entries.length === 0);
+  els.sectionChips.innerHTML = entries
+    .map(
+      (entry) =>
+        `<button class="pg-section-chip" data-section="${entry.label}" title="${escapeHtml(entry.value)}" type="button">${escapeHtml(getStructureLabel(entry.label))}</button>`
+    )
     .join("");
 }
 
@@ -551,7 +551,7 @@ async function openPanelForSource(source) {
   state.panelData.language = getDefaultPromptLanguage();
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
   renderRatioButtons();
-  renderKeywords();
+  renderSectionChips();
   syncGenerationVisibility();
   syncPromptControls();
   renderStructureView();
@@ -597,7 +597,6 @@ async function analyzeCurrentImage({ force }) {
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
       ratioChosen: state.panelData.ratioChosen,
       sections: result.sections || {},
-      keywords: result.keywords || {},
       languages: Array.isArray(result.languages) ? result.languages : ["en"],
       structureOpen: state.panelData.structureOpen || false,
       prompts: {
@@ -636,7 +635,7 @@ function switchDetail(detail) {
 function setPromptLanguage(language) {
   state.panelData.language = isPromptLanguageAvailable(language) ? language : "en";
   syncPromptControls();
-  renderKeywords();
+  renderSectionChips();
   renderStructureView();
   persistPanelImageCache();
 }
@@ -663,7 +662,6 @@ function hydratePanelData(data) {
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     ratioChosen: Boolean(data.ratioChosen),
     sections: data.sections || {},
-    keywords: data.keywords || {},
     languages: Array.isArray(data.languages) ? data.languages : [],
     structureOpen: Boolean(data.structureOpen),
     prompts: {
@@ -677,7 +675,7 @@ function hydratePanelData(data) {
 
   els.imageTitle.textContent = state.panelData.title || t("panelPromptTitleFallback");
   renderRatioButtons();
-  renderKeywords();
+  renderSectionChips();
   syncGenerationVisibility();
   syncPromptControls();
   renderStructureView();

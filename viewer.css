@@ -2,8 +2,8 @@
 :root {
   color-scheme: light;
   /* Mac fonts first, then Windows, then Linux; see content.css. */
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Segoe UI", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
   --brand: #1765a2;
   --brand-light: #5aa7e2;
   --bg: #f4f4f6;
@@ -144,7 +144,6 @@ button {
 
 .prompt {
   margin: 0;
-  max-width: 80ch;
   white-space: pre-wrap;
 }
 
