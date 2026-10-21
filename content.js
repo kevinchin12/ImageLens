@@ -2,11 +2,17 @@ const imageCache = new Map();
 const RATIO_OPTIONS = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const DEFAULT_TRANSLATOR = globalThis.ImageLensI18n.createTranslator("auto");
 
+const MIN_SELECTION_SIZE = 16;
+const MIN_BACKGROUND_IMAGE_SIZE = 48;
+
 const state = {
   settings: null,
   hoverImage: null,
-  panelImage: null,
+  panelSource: null,
   panelOpen: false,
+  contextPoint: null,
+  regionSelecting: false,
+  toastTimer: null,
   currentJob: null,
   panelData: createEmptyPanelData(),
   actionState: {
@@ -92,7 +98,11 @@ panel.innerHTML = `
   </div>
 `;
 
-document.documentElement.append(hoverTrigger, panel);
+const toast = document.createElement("div");
+toast.id = "pg-toast";
+toast.setAttribute("role", "status");
+
+document.documentElement.append(hoverTrigger, panel, toast);
 
 const els = {
   previewImage: panel.querySelector("#pg-preview-image"),
@@ -117,6 +127,17 @@ const els = {
   inlinePreview: panel.querySelector("#pg-inline-preview"),
   inlineGrid: panel.querySelector("#pg-inline-grid")
 };
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "context-analyze-image") {
+    handleContextAnalyze(message.payload || {}).catch((error) => {
+      showToast(error.message || t("contextAnalyzeFailed"));
+    });
+  } else if (message?.type === "start-region-selection") {
+    startRegionSelection();
+  }
+  sendResponse({ ok: true });
+});
 
 init();
 
@@ -186,12 +207,19 @@ function bindEvents() {
   document.addEventListener("pointermove", handlePointerMove, true);
   document.addEventListener("scroll", updateHoverButtonPosition, true);
   window.addEventListener("resize", updateHoverButtonPosition);
+  document.addEventListener(
+    "contextmenu",
+    (event) => {
+      state.contextPoint = { x: event.clientX, y: event.clientY };
+    },
+    true
+  );
 
   hoverTrigger.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
     if (!state.hoverImage) return;
-    await openPanelForImage(state.hoverImage);
+    await openPanelForSource(createImageSource(state.hoverImage));
   });
 
   els.close.addEventListener("click", closePanel);
@@ -312,21 +340,66 @@ function hideHoverButton() {
   hoverTrigger.style.display = "none";
 }
 
-async function openPanelForImage(image) {
+// A source is what the panel analyzes: an <img> element, an image URL found
+// some other way (CSS background, image inside an iframe), or a screenshot of
+// part of the page. `key` identifies it in imageCache.
+function createImageSource(image) {
+  const url = image.currentSrc || image.src;
+  return {
+    key: url,
+    element: image,
+    cropElement: image,
+    imageUrl: url,
+    dataUrl: "",
+    previewUrl: url,
+    alt: image.alt || "",
+    title: image.alt?.trim() || "",
+    label: url
+  };
+}
+
+function createUrlSource(url, cropElement = null) {
+  return {
+    key: url,
+    element: null,
+    cropElement,
+    imageUrl: url,
+    dataUrl: "",
+    previewUrl: url,
+    alt: "",
+    title: "",
+    label: url
+  };
+}
+
+function createCapturedSource(dataUrl, title) {
+  return {
+    key: `capture:${Date.now()}`,
+    element: null,
+    cropElement: null,
+    imageUrl: "",
+    dataUrl,
+    previewUrl: dataUrl,
+    alt: "",
+    title,
+    label: ""
+  };
+}
+
+async function openPanelForSource(source) {
   state.settings = await sendMessage({ type: "get-settings" });
   applyStaticTranslations();
-  state.panelImage = image;
+  state.panelSource = source;
   state.panelOpen = true;
   panel.classList.add("pg-open");
 
-  const imageUrl = image.currentSrc || image.src;
-  els.previewImage.src = imageUrl;
-  els.imageTitle.textContent = image.alt?.trim() || t("panelWebImage");
-  els.imageUrl.textContent = truncateMiddle(imageUrl, 52);
+  els.previewImage.src = source.previewUrl;
+  els.imageTitle.textContent = source.title || t("panelWebImage");
+  els.imageUrl.textContent = truncateMiddle(source.label || t("panelScreenshotLabel"), 52);
   state.currentJob = null;
   renderInlineImages([]);
 
-  const cached = imageCache.get(imageUrl);
+  const cached = imageCache.get(source.key);
   if (cached) {
     hydratePanelData(cached);
     return;
@@ -352,29 +425,25 @@ function closePanel() {
 }
 
 async function analyzeCurrentImage({ force }) {
-  if (!state.panelImage) return;
+  const targetSource = state.panelSource;
+  if (!targetSource?.key) return;
 
-  const imageUrl = state.panelImage.currentSrc || state.panelImage.src;
-  if (!imageUrl) return;
-
-  if (!force && imageCache.has(imageUrl)) {
-    hydratePanelData(imageCache.get(imageUrl));
+  if (!force && imageCache.has(targetSource.key)) {
+    hydratePanelData(imageCache.get(targetSource.key));
     return;
   }
 
-  const targetImage = state.panelImage;
-
   await runAction("analyze", t("panelAnalyzing"), async () => {
-    const imageDataUrl = await captureImageDataUrl(targetImage);
-    const screenshotCrop = getImageViewportCrop(targetImage);
+    const imageDataUrl = targetSource.dataUrl || (await captureImageDataUrl(targetSource.element));
+    const screenshotCrop = getViewportCrop(targetSource.cropElement);
     const result = await sendMessage({
       type: "analyze-image",
       payload: {
-        imageUrl,
+        imageUrl: targetSource.imageUrl,
         imageDataUrl,
         screenshotCrop,
         pageUrl: location.href,
-        alt: targetImage.alt || ""
+        alt: targetSource.alt
       }
     });
 
@@ -398,24 +467,22 @@ async function analyzeCurrentImage({ force }) {
       }
     };
 
-    imageCache.set(imageUrl, cached);
+    imageCache.set(targetSource.key, cached);
     // The user may have opened the panel on another image while this request
     // was in flight; only show the result if it still belongs to the panel.
-    if (state.panelImage === targetImage) {
+    if (state.panelSource === targetSource) {
       hydratePanelData(cached);
     }
   });
 
   // An analysis for a newly opened image is skipped while another one is busy,
   // so start it once the previous request has finished.
-  const currentImage = state.panelImage;
-  const currentUrl = currentImage?.currentSrc || currentImage?.src;
+  const currentSource = state.panelSource;
   if (
     state.panelOpen &&
-    currentImage &&
-    currentImage !== targetImage &&
-    currentUrl &&
-    !imageCache.has(currentUrl) &&
+    currentSource &&
+    currentSource !== targetSource &&
+    !imageCache.has(currentSource.key) &&
     state.settings?.autoAnalyze
   ) {
     await analyzeCurrentImage({ force: false });
@@ -673,10 +740,8 @@ async function generateFromCurrentPrompt() {
 }
 
 function persistPanelImageCache() {
-  if (!state.panelImage) return;
-  const imageUrl = state.panelImage.currentSrc || state.panelImage.src;
-  if (!imageUrl) return;
-  imageCache.set(imageUrl, structuredClone(state.panelData));
+  if (!state.panelSource?.key) return;
+  imageCache.set(state.panelSource.key, structuredClone(state.panelData));
 }
 
 function renderInlineImages(images) {
@@ -808,10 +873,10 @@ async function captureImageDataUrl(image) {
   return "";
 }
 
-function getImageViewportCrop(image) {
-  if (!(image instanceof HTMLImageElement)) return null;
+function getViewportCrop(element) {
+  if (!(element instanceof Element)) return null;
 
-  const rect = image.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
   const x = Math.max(0, rect.left);
   const y = Math.max(0, rect.top);
   const right = Math.min(window.innerWidth, rect.right);
@@ -837,6 +902,232 @@ function blobToDataUrl(blob) {
     reader.onerror = () => reject(reader.error || new Error("Failed to read image blob."));
     reader.readAsDataURL(blob);
   });
+}
+
+async function handleContextAnalyze({ srcUrl, inSubframe }) {
+  const point = inSubframe ? null : state.contextPoint;
+  const target = point ? findTargetAtPoint(point.x, point.y) : null;
+
+  if (target?.image) {
+    await openPanelForSource(createImageSource(target.image));
+    return;
+  }
+
+  if (target?.backgroundUrl) {
+    await openPanelForSource(createUrlSource(target.backgroundUrl, target.element));
+    return;
+  }
+
+  if (target?.element) {
+    // Canvas and video pixels are often unreadable (cross-origin, WebGL, DRM),
+    // so analyze what is on screen instead.
+    const dataUrl = await captureViewportRegion(getViewportCrop(target.element));
+    const title = t(target.element instanceof HTMLVideoElement ? "panelVideoFrameTitle" : "panelCanvasTitle");
+    await openPanelForSource(createCapturedSource(dataUrl, title));
+    return;
+  }
+
+  if (srcUrl) {
+    await openPanelForSource(createUrlSource(srcUrl));
+    return;
+  }
+
+  showToast(t("contextNoImageFound"));
+  startRegionSelection();
+}
+
+// elementsFromPoint also returns elements underneath transparent overlays,
+// which is how sites like Pinterest and Instagram cover their images.
+function findTargetAtPoint(x, y) {
+  for (const element of document.elementsFromPoint(x, y)) {
+    if (isOwnUiElement(element)) continue;
+    if (element === document.documentElement || element === document.body) continue;
+
+    if (element instanceof HTMLImageElement && (element.currentSrc || element.src)) {
+      return { image: element };
+    }
+    if (element instanceof HTMLCanvasElement || element instanceof HTMLVideoElement) {
+      return { element };
+    }
+
+    const backgroundUrl = getBackgroundImageUrl(element);
+    if (backgroundUrl) {
+      return { element, backgroundUrl };
+    }
+  }
+
+  // elementsFromPoint skips elements with pointer-events: none.
+  const image = findImageContainingPoint(x, y);
+  return image ? { image } : null;
+}
+
+function findImageContainingPoint(x, y) {
+  let best = null;
+  let bestArea = Infinity;
+
+  for (const image of document.images) {
+    if (!(image.currentSrc || image.src)) continue;
+    const rect = image.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+
+    const area = rect.width * rect.height;
+    if (area > 0 && area < bestArea) {
+      best = image;
+      bestArea = area;
+    }
+  }
+
+  return best;
+}
+
+function getBackgroundImageUrl(element) {
+  const rect = element.getBoundingClientRect();
+  // Skips icon sprites, which are small and would analyze the whole sheet.
+  if (rect.width < MIN_BACKGROUND_IMAGE_SIZE || rect.height < MIN_BACKGROUND_IMAGE_SIZE) return "";
+
+  const match = getComputedStyle(element).backgroundImage.match(/url\(\s*(["']?)(.*?)\1\s*\)/);
+  if (!match?.[2]) return "";
+
+  try {
+    return new URL(match[2], document.baseURI).href;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function isOwnUiElement(element) {
+  return (
+    element === hoverTrigger ||
+    element === toast ||
+    panel.contains(element) ||
+    Boolean(element.closest?.("#pg-region-overlay"))
+  );
+}
+
+function startRegionSelection() {
+  if (state.regionSelecting) return;
+  state.regionSelecting = true;
+  hideHoverButton();
+
+  const overlay = document.createElement("div");
+  overlay.id = "pg-region-overlay";
+  overlay.innerHTML = `
+    <div class="pg-region-hint">${escapeHtml(t("regionSelectHint"))}</div>
+    <div class="pg-region-box"></div>
+  `;
+  const box = overlay.querySelector(".pg-region-box");
+  let start = null;
+  let selection = null;
+
+  const updateSelection = (event) => {
+    const left = Math.max(0, Math.min(start.x, event.clientX));
+    const top = Math.max(0, Math.min(start.y, event.clientY));
+    const right = Math.min(window.innerWidth, Math.max(start.x, event.clientX));
+    const bottom = Math.min(window.innerHeight, Math.max(start.y, event.clientY));
+    selection = { x: left, y: top, width: right - left, height: bottom - top };
+
+    box.style.left = `${selection.x}px`;
+    box.style.top = `${selection.y}px`;
+    box.style.width = `${selection.width}px`;
+    box.style.height = `${selection.height}px`;
+    box.classList.add("is-visible");
+  };
+
+  const onKeyDown = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    finish(null);
+  };
+
+  const finish = async (selected) => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeyDown, true);
+    state.regionSelecting = false;
+    if (!selected) return;
+
+    try {
+      const dataUrl = await captureViewportRegion({
+        ...selected,
+        devicePixelRatio: window.devicePixelRatio || 1
+      });
+      await openPanelForSource(createCapturedSource(dataUrl, t("panelRegionTitle")));
+    } catch (error) {
+      showToast(error.message || t("regionCaptureFailed"));
+    }
+  };
+
+  overlay.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    start = { x: event.clientX, y: event.clientY };
+    overlay.setPointerCapture(event.pointerId);
+    updateSelection(event);
+  });
+  overlay.addEventListener("pointermove", (event) => {
+    if (start) updateSelection(event);
+  });
+  overlay.addEventListener("pointerup", (event) => {
+    if (!start) return;
+    updateSelection(event);
+    start = null;
+    const isLargeEnough =
+      selection.width >= MIN_SELECTION_SIZE && selection.height >= MIN_SELECTION_SIZE;
+    finish(isLargeEnough ? selection : null);
+  });
+  overlay.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    finish(null);
+  });
+
+  document.addEventListener("keydown", onKeyDown, true);
+  document.documentElement.append(overlay);
+}
+
+// The screenshot is taken by the background worker from what is painted on
+// screen, so the panel and buttons are hidden until the capture is done.
+async function captureViewportRegion(crop) {
+  if (!crop) {
+    throw new Error(t("regionOutOfView"));
+  }
+
+  const restore = hideOwnUiForCapture();
+  try {
+    await waitForNextPaint();
+    const result = await sendMessage({ type: "capture-region", payload: { crop } });
+    return result.dataUrl;
+  } finally {
+    restore();
+  }
+}
+
+function hideOwnUiForCapture() {
+  const elements = [panel, hoverTrigger, toast];
+  const previous = elements.map((element) => element.style.visibility);
+  elements.forEach((element) => {
+    element.style.visibility = "hidden";
+  });
+
+  return () => {
+    elements.forEach((element, index) => {
+      element.style.visibility = previous[index];
+    });
+  };
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 30)));
+  });
+}
+
+function showToast(text) {
+  toast.textContent = text;
+  toast.classList.add("is-visible");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => {
+    toast.classList.remove("is-visible");
+  }, 3200);
 }
 
 async function sendMessage(message) {
