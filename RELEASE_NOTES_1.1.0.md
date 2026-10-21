@@ -60,7 +60,8 @@
 
 - 识图默认模型改为 `gemini-3.8-flash`（原 `gemini-3.1-pro-preview`）
 - 生图默认模型改为 `gemini-nano-banana-2.1`（原 `gemini-3.1-flash-image-preview`）
-- 只影响新安装的用户；已经保存过设置的用户仍使用原来的模型，可以在设置页手动修改
+- 老用户如果还在用旧的默认模型（`gemini-3.1-pro-preview`、`gemini-3.1-flash-image-preview`，以及更早的 `gemini-2.5-flash`、`imagen-4.0-generate-001`），升级后会自动换成新的默认模型
+- 自己改过模型名的不会变；使用 OpenAI Compatible 网关的用户填写的模型名也不会变
 
 ## 问题修复
 

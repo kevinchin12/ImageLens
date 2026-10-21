@@ -36,9 +36,11 @@ const DEFAULT_SETTINGS = {
   imageProviderProfiles: {}
 };
 const DEFAULT_PROMPT_MODEL = "gemini-3.8-flash";
-const LEGACY_PROMPT_MODEL = "gemini-2.5-flash";
 const DEFAULT_IMAGE_MODEL = "gemini-nano-banana-2.1";
-const TEMP_IMAGE_MODEL = "imagen-4.0-generate-001";
+// Earlier defaults. Gemini settings still on one of these move to the current
+// default; any other model name is the user's own choice and is left alone.
+const RETIRED_PROMPT_MODELS = ["gemini-2.5-flash", "gemini-3.1-pro-preview"];
+const RETIRED_IMAGE_MODELS = ["imagen-4.0-generate-001", "gemini-3.1-flash-image-preview"];
 const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_DEFAULT_PROMPT_MODEL = "gpt-4.1-mini";
@@ -197,25 +199,7 @@ async function getSettings() {
     merged.imageBaseUrl = getProviderBaseUrl(merged.imageProvider);
   }
 
-  // Migrate the temporary Imagen fallback back to the current Nano Banana
-  // default, now that image generation uses generateContent.
-  const updates = {};
-  if (merged.promptModel === LEGACY_PROMPT_MODEL) {
-    merged.promptModel = DEFAULT_PROMPT_MODEL;
-    updates.promptModel = DEFAULT_PROMPT_MODEL;
-  }
-  if (merged.geminiTextModel === LEGACY_PROMPT_MODEL) {
-    merged.geminiTextModel = DEFAULT_PROMPT_MODEL;
-    updates.geminiTextModel = DEFAULT_PROMPT_MODEL;
-  }
-  if (merged.imageModel === TEMP_IMAGE_MODEL) {
-    merged.imageModel = DEFAULT_IMAGE_MODEL;
-    updates.imageModel = DEFAULT_IMAGE_MODEL;
-  }
-  if (merged.geminiImageModel === TEMP_IMAGE_MODEL) {
-    merged.geminiImageModel = DEFAULT_IMAGE_MODEL;
-    updates.geminiImageModel = DEFAULT_IMAGE_MODEL;
-  }
+  const updates = migrateRetiredDefaultModels(merged);
   if (Object.keys(updates).length > 0) {
     await chrome.storage.local.set(updates);
   }
@@ -256,6 +240,44 @@ async function getSettings() {
   }
 
   return result;
+}
+
+// Moves Gemini settings that still hold an earlier default model to the
+// current one. The model is stored both in flat fields and in per-provider
+// profiles, and the profile is what takes effect, so both are updated.
+// Changes `settings` in place and returns the fields to write back.
+function migrateRetiredDefaultModels(settings) {
+  const updates = {};
+  const migrateField = (key, retired, next) => {
+    if (retired.includes(settings[key])) {
+      settings[key] = next;
+      updates[key] = next;
+    }
+  };
+  const migrateGeminiProfile = (profilesKey, field, retired, next) => {
+    const profiles = settings[profilesKey];
+    const profile = isPlainObject(profiles) ? profiles.gemini : null;
+    if (!isPlainObject(profile) || !retired.includes(profile[field])) return;
+    settings[profilesKey] = { ...profiles, gemini: { ...profile, [field]: next } };
+    updates[profilesKey] = settings[profilesKey];
+  };
+
+  // The flat model fields belong to whichever provider is active; only
+  // migrate them while that provider is Gemini.
+  if (settings.promptProvider === "gemini") {
+    migrateField("promptModel", RETIRED_PROMPT_MODELS, DEFAULT_PROMPT_MODEL);
+  }
+  if (settings.imageProvider === "gemini") {
+    migrateField("imageModel", RETIRED_IMAGE_MODELS, DEFAULT_IMAGE_MODEL);
+  }
+  migrateField("geminiTextModel", RETIRED_PROMPT_MODELS, DEFAULT_PROMPT_MODEL);
+  migrateField("geminiImageModel", RETIRED_IMAGE_MODELS, DEFAULT_IMAGE_MODEL);
+  migrateGeminiProfile("promptProviderProfiles", "model", RETIRED_PROMPT_MODELS, DEFAULT_PROMPT_MODEL);
+  migrateGeminiProfile("imageProviderProfiles", "model", RETIRED_IMAGE_MODELS, DEFAULT_IMAGE_MODEL);
+  migrateGeminiProfile("providerProfiles", "promptModel", RETIRED_PROMPT_MODELS, DEFAULT_PROMPT_MODEL);
+  migrateGeminiProfile("providerProfiles", "imageModel", RETIRED_IMAGE_MODELS, DEFAULT_IMAGE_MODEL);
+
+  return updates;
 }
 
 async function saveSettings(payload) {
