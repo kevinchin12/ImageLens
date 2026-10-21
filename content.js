@@ -330,9 +330,11 @@ async function analyzeCurrentImage({ force }) {
     return;
   }
 
+  const targetImage = state.panelImage;
+
   await runAction("analyze", "正在识别图片内容...", async () => {
-    const imageDataUrl = await captureImageDataUrl(state.panelImage);
-    const screenshotCrop = getImageViewportCrop(state.panelImage);
+    const imageDataUrl = await captureImageDataUrl(targetImage);
+    const screenshotCrop = getImageViewportCrop(targetImage);
     const result = await sendMessage({
       type: "analyze-image",
       payload: {
@@ -340,7 +342,7 @@ async function analyzeCurrentImage({ force }) {
         imageDataUrl,
         screenshotCrop,
         pageUrl: location.href,
-        alt: state.panelImage.alt || ""
+        alt: targetImage.alt || ""
       }
     });
 
@@ -365,8 +367,27 @@ async function analyzeCurrentImage({ force }) {
     };
 
     imageCache.set(imageUrl, cached);
-    hydratePanelData(cached);
+    // The user may have opened the panel on another image while this request
+    // was in flight; only show the result if it still belongs to the panel.
+    if (state.panelImage === targetImage) {
+      hydratePanelData(cached);
+    }
   });
+
+  // An analysis for a newly opened image is skipped while another one is busy,
+  // so start it once the previous request has finished.
+  const currentImage = state.panelImage;
+  const currentUrl = currentImage?.currentSrc || currentImage?.src;
+  if (
+    state.panelOpen &&
+    currentImage &&
+    currentImage !== targetImage &&
+    currentUrl &&
+    !imageCache.has(currentUrl) &&
+    state.settings?.autoAnalyze
+  ) {
+    await analyzeCurrentImage({ force: false });
+  }
 }
 
 function switchDetail(detail) {
