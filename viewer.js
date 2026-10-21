@@ -4,6 +4,7 @@ const copyPromptButton = document.getElementById("copy-prompt");
 const downloadImagesButton = document.getElementById("download-images");
 
 let currentPayload = null;
+let currentSettings = null;
 const VIEWER_DB_NAME = "image-lens-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
 const VIEWER_RECORD_ID = "current";
@@ -11,15 +12,18 @@ const VIEWER_RECORD_ID = "current";
 init();
 
 async function init() {
+  currentSettings = await readSettings();
+  applyStaticTranslations();
+
   const payload = await readViewerPayload();
 
   if (!payload) {
-    promptEl.textContent = "结果不存在，可能已过期。";
+    promptEl.textContent = t("viewerMissingPayload");
     return;
   }
 
   currentPayload = payload;
-  promptEl.textContent = payload.prompt || "未提供提示词";
+  promptEl.textContent = payload.prompt || t("viewerPromptMissing");
   renderImages(payload.images || []);
 }
 
@@ -27,9 +31,9 @@ copyPromptButton.addEventListener("click", async () => {
   const prompt = currentPayload?.prompt || "";
   if (!prompt) return;
   await navigator.clipboard.writeText(prompt);
-  copyPromptButton.textContent = "已复制";
+  copyPromptButton.textContent = t("viewerCopied");
   setTimeout(() => {
-    copyPromptButton.textContent = "复制提示词";
+    copyPromptButton.textContent = t("viewerCopyPrompt");
   }, 1200);
 });
 
@@ -41,9 +45,21 @@ downloadImagesButton.addEventListener("click", () => {
   });
 });
 
+function applyStaticTranslations() {
+  document.documentElement.lang = getTranslator().messages.htmlLang;
+  document.title = t("viewerTitle");
+  document.getElementById("viewer-eyebrow").textContent = t("appName");
+  document.getElementById("viewer-heading").textContent = t("viewerHeading");
+  copyPromptButton.textContent = t("viewerCopyPrompt");
+  downloadImagesButton.textContent = t("viewerDownloadImages");
+  if (!currentPayload) {
+    promptEl.textContent = t("viewerLoading");
+  }
+}
+
 function renderImages(images) {
   if (images.length === 0) {
-    gallery.innerHTML = "<p>这次没有拿到图片结果。</p>";
+    gallery.innerHTML = `<p>${escapeHtml(t("viewerNoImages"))}</p>`;
     return;
   }
 
@@ -59,6 +75,23 @@ function renderImages(images) {
     .join("");
 }
 
+function getTranslator() {
+  return globalThis.ImageLensI18n.createTranslator(currentSettings?.uiLanguage || "auto");
+}
+
+function t(key, values) {
+  return getTranslator().t(key, values);
+}
+
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function triggerDownload(src, filename) {
   const link = document.createElement("a");
   link.href = src;
@@ -66,6 +99,18 @@ function triggerDownload(src, filename) {
   document.body.append(link);
   link.click();
   link.remove();
+}
+
+async function readSettings() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(["uiLanguage"], (result) => {
+        resolve(result || {});
+      });
+    } catch {
+      resolve({});
+    }
+  });
 }
 
 async function readViewerPayload() {

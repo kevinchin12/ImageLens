@@ -8,6 +8,26 @@
   --pg-accent: #6d7cff;
   --pg-accent-2: #2dd4ff;
   --pg-success: #6ee7b7;
+  /* Mac fonts first, then Windows (Segoe UI for Latin, YaHei for Chinese),
+     then Linux. Without an explicit Chinese font, Windows Chrome may pick a
+     Japanese font and draw characters like 复 in the wrong shape. */
+  --pg-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC",
+    sans-serif;
+}
+
+/* The panel must not inherit the host page's font. */
+#pg-panel,
+#pg-toast,
+#pg-region-overlay {
+  font-family: var(--pg-font);
+}
+
+/* Form controls use the browser's own font unless told to inherit. */
+#pg-panel button,
+#pg-panel select,
+#pg-panel textarea {
+  font-family: inherit;
 }
 
 #pg-panel,
@@ -132,7 +152,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(14px) saturate(1.35);
   -webkit-backdrop-filter: blur(14px) saturate(1.35);
-  font: 600 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+  font: 600 13px/1 var(--pg-font);
 }
 
 .pg-close,
@@ -216,7 +236,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(16px) saturate(1.35);
   -webkit-backdrop-filter: blur(16px) saturate(1.35);
-  font: 500 13px/1.68 -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+  font: 500 13px/1.68 var(--pg-font);
 }
 
 .pg-textarea::placeholder {
@@ -237,16 +257,24 @@
 
 .pg-structure-row {
   display: grid;
-  grid-template-columns: 52px 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(42px, 56px) minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
+}
+
+.pg-structure-grid[data-ui-language="en"] .pg-structure-row {
+  grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
+  gap: 16px;
 }
 
 .pg-structure-label {
   color: var(--pg-accent-2);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.55;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  word-break: break-word;
 }
 
 .pg-structure-value {
@@ -255,6 +283,17 @@
   font-size: 12px;
   line-height: 1.6;
   word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .pg-structure-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .pg-structure-label {
+    font-size: 10px;
+  }
 }
 
 .pg-meta {
@@ -281,6 +320,17 @@
 .pg-select-wrap {
   display: grid;
   gap: 8px;
+}
+
+/* Windows draws the dropdown list with the select's white text on a white
+   background unless the options get their own colors. */
+.pg-select {
+  color-scheme: dark;
+}
+
+.pg-select option {
+  background-color: #111a2e;
+  color: var(--pg-ink);
 }
 
 .pg-generate-row {
@@ -413,6 +463,68 @@
   color: white;
   font-size: 12px;
   cursor: pointer;
+}
+
+#pg-region-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  cursor: crosshair;
+  background: rgba(2, 6, 23, 0.32);
+  user-select: none;
+  touch-action: none;
+}
+
+#pg-region-overlay .pg-region-hint {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--pg-glass-stroke);
+  background: var(--pg-glass-bg);
+  color: var(--pg-ink);
+  font: 13px/1.4 var(--pg-font);
+  pointer-events: none;
+}
+
+#pg-region-overlay .pg-region-box {
+  position: fixed;
+  display: none;
+  border: 1.5px solid var(--pg-accent-2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(2, 6, 23, 0.5);
+  pointer-events: none;
+}
+
+#pg-region-overlay .pg-region-box.is-visible {
+  display: block;
+}
+
+#pg-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 2147483647;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--pg-glass-stroke);
+  background: var(--pg-glass-bg);
+  box-shadow: 0 12px 30px var(--pg-glass-shadow);
+  color: var(--pg-ink);
+  font: 13px/1.5 var(--pg-font);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#pg-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 @keyframes pg-spin {

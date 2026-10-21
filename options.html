@@ -1,18 +1,37 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>图透镜 Image Lens 设置</title>
+    <title>Image Lens Settings</title>
     <link rel="stylesheet" href="./options.css" />
+    <link rel="stylesheet" href="./donation-widget.css" />
   </head>
   <body>
     <main class="page">
       <section class="hero glass">
         <div>
-          <p class="eyebrow">图透镜 Image Lens</p>
-          <h1>填写模型配置后即可开始使用</h1>
-          <p class="subtitle">当前版本采用自备 API Key 模式，插件不会内置或提供 API Key。</p>
+          <p id="hero-eyebrow" class="eyebrow">Image Lens</p>
+          <h1 id="hero-title">Add your model settings and start using the extension</h1>
+          <p id="hero-subtitle" class="subtitle">This version uses your own API key. The extension does not bundle or provide API keys.</p>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="glass card">
+          <div class="section-head">
+            <h2 id="ui-language-section-title">Interface Language</h2>
+            <p id="ui-language-section-description">Choose auto-detect or switch the UI language yourself.</p>
+          </div>
+
+          <label class="field">
+            <span id="ui-language-label">Interface Language</span>
+            <select name="uiLanguage" form="settings-form">
+              <option value="auto">Auto</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </label>
         </div>
       </section>
 
@@ -20,12 +39,12 @@
         <form id="settings-form" class="glass card">
           <section class="field-group">
             <div class="section-head">
-              <h2>提示词识别</h2>
-              <p>识图服务商、URL、模型和 API Key 独立配置，可与生图自由组合。</p>
+              <h2 id="analyze-section-title">Prompt Analysis</h2>
+              <p id="analyze-section-description">Choose a provider, base URL, model, and API key for image analysis.</p>
             </div>
 
             <label class="field">
-              <span>识图服务商</span>
+              <span id="prompt-provider-label">Analysis Provider</span>
               <select name="promptProvider">
                 <option value="gemini">Gemini</option>
                 <option value="openai-compatible">OpenAI Compatible</option>
@@ -33,43 +52,53 @@
             </label>
 
             <label class="field">
-              <span>识图 Base URL</span>
-              <input name="promptBaseUrl" type="url" placeholder="https://generativelanguage.googleapis.com/v1beta" />
-              <small id="prompt-base-url-help">Gemini 默认使用 Google 官方 REST 地址；切到 OpenAI Compatible 时会自动带入官方 API 地址。</small>
+              <span id="prompt-base-url-label">Analysis Base URL</span>
+              <input
+                name="promptBaseUrl"
+                type="url"
+                placeholder="https://generativelanguage.googleapis.com/v1beta"
+                autocomplete="off"
+              />
+              <small id="prompt-base-url-help">Gemini uses Google's official REST base URL by default.</small>
             </label>
 
             <label class="field">
-              <span>识别图片模型 API Key</span>
-              <input name="promptApiKey" type="password" placeholder="请填入你的 API Key" autocomplete="off" />
-              <small>只保存在本地 `chrome.storage.local`，不会写入代码仓库。</small>
+              <span id="prompt-api-key-label">API Key for Analysis</span>
+              <input name="promptApiKey" type="password" placeholder="Enter your API key" autocomplete="off" />
+              <small id="local-storage-note">Stored only in local chrome.storage.local and used only for requests to your selected provider.</small>
             </label>
 
             <label class="field">
-              <span>识别图片模型</span>
+              <span id="prompt-model-label">Analysis Model</span>
               <input name="promptModel" type="text" placeholder="gemini-3.1-pro-preview" />
-              <small id="prompt-model-help">Gemini 例如 `gemini-3.1-pro-preview`；OpenAI 兼容默认可用 `gpt-5.5`。</small>
+              <small id="prompt-model-help">Gemini example: gemini-3.1-pro-preview.</small>
             </label>
 
             <label class="field toggle">
-              <span>打开面板后自动识别</span>
+              <span id="auto-analyze-label">Auto analyze when the panel opens</span>
               <input name="autoAnalyze" form="settings-form" type="checkbox" />
+            </label>
+
+            <label class="field toggle">
+              <span id="enable-chinese-recognition-label">Generate Chinese prompt variants</span>
+              <input name="enableChineseRecognition" form="settings-form" type="checkbox" />
             </label>
           </section>
 
           <section class="field-group">
             <div class="section-head">
-              <h2>生图</h2>
-              <p>生图服务商、URL、模型和 API Key 独立配置，可与识图自由组合。</p>
+              <h2 id="generate-section-title">Image Generation</h2>
+              <p id="generate-section-description">Optional. Choose a provider, base URL, model, and API key for image generation.</p>
             </div>
 
             <label class="field toggle">
-              <span>开启生图功能</span>
+              <span id="image-generation-enabled-label">Enable image generation</span>
               <input name="imageGenerationEnabled" form="settings-form" type="checkbox" />
             </label>
 
             <div id="image-settings-group" class="field-stack">
               <label class="field">
-                <span>生图服务商</span>
+                <span id="image-provider-label">Image Provider</span>
                 <select name="imageProvider">
                   <option value="gemini">Gemini</option>
                   <option value="openai-compatible">OpenAI Compatible</option>
@@ -77,35 +106,44 @@
               </label>
 
               <label class="field">
-                <span>生图 Base URL</span>
-                <input name="imageBaseUrl" type="url" placeholder="https://generativelanguage.googleapis.com/v1beta" />
-                <small id="image-base-url-help">Gemini 默认使用 Google 官方 REST 地址；切到 OpenAI Compatible 时会自动带入官方 API 地址。</small>
+                <span id="image-base-url-label">Image Base URL</span>
+                <input
+                  name="imageBaseUrl"
+                  type="url"
+                  placeholder="https://generativelanguage.googleapis.com/v1beta"
+                  autocomplete="off"
+                />
+                <small id="image-base-url-help">Gemini uses Google's official REST base URL by default.</small>
               </label>
 
               <label class="field">
-                <span>生图模型 API Key</span>
-                <input name="imageApiKey" type="password" placeholder="请填入你的 API Key" autocomplete="off" />
-                <small>识图和生图可用同一个 Key，也可以完全分开。</small>
+                <span id="image-api-key-label">API Key for Image Generation</span>
+                <input name="imageApiKey" type="password" placeholder="Enter your API key" autocomplete="off" />
+                <small id="same-key-note">If both analysis and generation use the same provider, you can use the same API key.</small>
               </label>
 
               <label class="field">
-                <span>生图模型</span>
+                <span id="image-model-label">Image Model</span>
                 <input name="imageModel" type="text" placeholder="gemini-3.1-flash-image-preview" />
-                <small id="image-model-help">Gemini 例如 `gemini-3.1-flash-image-preview`；OpenAI 兼容默认可用 `gpt-image-2`。</small>
+                <small id="image-model-help">Available models may vary by account, region, or plan.</small>
               </label>
             </div>
           </section>
 
           <div class="actions">
-            <button class="primary" type="submit">保存设置</button>
-            <button id="open-doc" type="button">查看文档</button>
+            <button id="save-button" class="primary" type="submit">Save Settings</button>
+            <button id="open-doc" type="button">Documentation</button>
           </div>
-          <p class="note">提示：这是一个自备 API Key 模式的插件，安装后需要填写自己的 API Key 才能使用。</p>
-          <p id="status" class="status">读取设置中...</p>
+          <p id="options-note" class="note">Note: this extension uses your own API key. Add it before using the extension.</p>
+          <p id="status" class="status">Loading settings...</p>
         </form>
       </section>
+
+      <aside id="donation-widget-slot" class="donation-slot"></aside>
     </main>
 
+    <script src="./i18n.js"></script>
+    <script src="./donation-widget.js"></script>
     <script src="./options.js"></script>
   </body>
 </html>

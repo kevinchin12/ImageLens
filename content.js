@@ -1,11 +1,18 @@
 const imageCache = new Map();
 const RATIO_OPTIONS = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+const DEFAULT_TRANSLATOR = globalThis.ImageLensI18n.createTranslator("auto");
+
+const MIN_SELECTION_SIZE = 16;
+const MIN_BACKGROUND_IMAGE_SIZE = 48;
 
 const state = {
   settings: null,
   hoverImage: null,
-  panelImage: null,
+  panelSource: null,
   panelOpen: false,
+  contextPoint: null,
+  regionSelecting: false,
+  toastTimer: null,
   currentJob: null,
   panelData: createEmptyPanelData(),
   actionState: {
@@ -17,7 +24,7 @@ const state = {
 const hoverTrigger = document.createElement("button");
 hoverTrigger.id = "pg-hover-trigger";
 hoverTrigger.type = "button";
-hoverTrigger.title = "分析图片并生成提示词";
+hoverTrigger.title = DEFAULT_TRANSLATOR.t("panelHoverTitle");
 
 const panel = document.createElement("aside");
 panel.id = "pg-panel";
@@ -25,60 +32,60 @@ panel.innerHTML = `
   <div class="pg-shell">
     <div class="pg-header">
       <div class="pg-title">
-        <strong>图透镜 Image Lens</strong>
+        <strong id="pg-brand">${escapeHtml(DEFAULT_TRANSLATOR.t("appName"))}</strong>
       </div>
       <div class="pg-header-actions">
-        <button class="pg-icon-button" id="pg-open-options" type="button" aria-label="打开设置" title="打开设置">⚙</button>
-        <button class="pg-close" id="pg-close" type="button">关闭</button>
+        <button class="pg-icon-button" id="pg-open-options" type="button" aria-label="${escapeHtml(DEFAULT_TRANSLATOR.t("panelOpenSettings"))}" title="${escapeHtml(DEFAULT_TRANSLATOR.t("panelOpenSettings"))}">⚙</button>
+        <button class="pg-close" id="pg-close" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelClose"))}</button>
       </div>
     </div>
 
     <div class="pg-row">
       <div class="pg-preview"><img id="pg-preview-image" alt="selected image preview" /></div>
       <div class="pg-title">
-        <strong id="pg-image-title">当前图片</strong>
-        <span id="pg-image-url">等待选择图片</span>
+        <strong id="pg-image-title">${escapeHtml(DEFAULT_TRANSLATOR.t("panelCurrentImage"))}</strong>
+        <span id="pg-image-url">${escapeHtml(DEFAULT_TRANSLATOR.t("panelWaitingImage"))}</span>
       </div>
     </div>
 
     <section class="pg-section pg-section-prompt">
       <div class="pg-section-head">
-        <strong>提示词</strong>
+        <strong id="pg-prompt-heading">${escapeHtml(DEFAULT_TRANSLATOR.t("panelPromptTitle"))}</strong>
         <div class="pg-chip-group">
-          <button class="pg-chip" id="pg-detail-short" type="button">精简版</button>
-          <button class="pg-chip is-active" id="pg-detail-full" type="button">完整版</button>
-          <button class="pg-chip" id="pg-toggle-translation" type="button">翻译</button>
-          <button class="pg-chip" id="pg-toggle-structure" type="button">查看结构</button>
+          <button class="pg-chip" id="pg-detail-short" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelShort"))}</button>
+          <button class="pg-chip is-active" id="pg-detail-full" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelFull"))}</button>
+          <button class="pg-chip" id="pg-toggle-translation" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelViewChinese"))}</button>
+          <button class="pg-chip" id="pg-toggle-structure" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelShowStructure"))}</button>
         </div>
       </div>
 
-      <textarea class="pg-textarea" id="pg-prompt-input" placeholder="这里会显示识别后的提示词，你可以直接修改。"></textarea>
+      <textarea class="pg-textarea" id="pg-prompt-input" placeholder="${escapeHtml(DEFAULT_TRANSLATOR.t("panelPromptPlaceholder"))}"></textarea>
       <div class="pg-structure pg-hidden" id="pg-structure">
         <div class="pg-structure-grid" id="pg-structure-grid"></div>
       </div>
       <div class="pg-meta">
-        <span id="pg-status">就绪</span>
-        <span id="pg-char-count">0 字</span>
+        <span id="pg-status">${escapeHtml(DEFAULT_TRANSLATOR.t("panelReady"))}</span>
+        <span id="pg-char-count">${escapeHtml(DEFAULT_TRANSLATOR.t("panelChars", { count: 0 }))}</span>
       </div>
 
       <div class="pg-actions pg-actions-fixed">
-        <button class="pg-action pg-fixed-control" id="pg-copy" type="button">复制提示词</button>
-        <button class="pg-action pg-fixed-control" id="pg-analyze" type="button">重新识别</button>
+        <button class="pg-action pg-fixed-control" id="pg-copy" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelCopy"))}</button>
+        <button class="pg-action pg-fixed-control" id="pg-analyze" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelReanalyze"))}</button>
       </div>
     </section>
 
     <section class="pg-section" id="pg-generate-section">
       <div class="pg-section-head">
-        <strong>立刻生图</strong>
+        <strong id="pg-generate-heading">${escapeHtml(DEFAULT_TRANSLATOR.t("panelGenerateTitle"))}</strong>
       </div>
 
       <div class="pg-generate-row">
         <label class="pg-select-wrap pg-fixed-control-wrap">
-          <span>图片比例</span>
+          <span id="pg-ratio-label">${escapeHtml(DEFAULT_TRANSLATOR.t("panelAspectRatio"))}</span>
           <select class="pg-select pg-fixed-control" id="pg-ratio-select"></select>
         </label>
         <div class="pg-actions pg-actions-fixed">
-          <button class="pg-action primary pg-fixed-control" id="pg-generate" type="button">立刻生图</button>
+          <button class="pg-action primary pg-fixed-control" id="pg-generate" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelGenerate"))}</button>
         </div>
       </div>
 
@@ -87,11 +94,15 @@ panel.innerHTML = `
       </div>
     </section>
 
-    <p class="pg-credit">© 2026 嘉文钱. Licensed under MIT</p>
+    <p class="pg-credit" id="pg-credit">${escapeHtml(DEFAULT_TRANSLATOR.t("panelCredit"))}</p>
   </div>
 `;
 
-document.documentElement.append(hoverTrigger, panel);
+const toast = document.createElement("div");
+toast.id = "pg-toast";
+toast.setAttribute("role", "status");
+
+document.documentElement.append(hoverTrigger, panel, toast);
 
 const els = {
   previewImage: panel.querySelector("#pg-preview-image"),
@@ -117,15 +128,28 @@ const els = {
   inlineGrid: panel.querySelector("#pg-inline-grid")
 };
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "context-analyze-image") {
+    handleContextAnalyze(message.payload || {}).catch((error) => {
+      showToast(error.message || t("contextAnalyzeFailed"));
+    });
+  } else if (message?.type === "start-region-selection") {
+    startRegionSelection();
+  }
+  sendResponse({ ok: true });
+});
+
 init();
 
 async function init() {
   const response = await sendMessage({ type: "get-settings" });
   state.settings = response;
   state.panelData.detail = "full";
+  state.panelData.language = "en";
   state.panelData.aspectRatio = state.settings.aspectRatio || "1:1";
   renderRatioSelect();
   bindEvents();
+  applyStaticTranslations();
   syncGenerationVisibility();
   syncPromptControls();
 }
@@ -134,7 +158,7 @@ function createEmptyPanelData() {
   return {
     title: "",
     detail: "full",
-    language: "zh",
+    language: "en",
     aspectRatio: "1:1",
     prompts: {
       short: {
@@ -152,16 +176,53 @@ function createEmptyPanelData() {
   };
 }
 
+function getTranslator() {
+  return globalThis.ImageLensI18n.createTranslator(state.settings?.uiLanguage || "auto");
+}
+
+function t(key, values) {
+  return getTranslator().t(key, values);
+}
+
+function applyStaticTranslations() {
+  const translator = getTranslator();
+  // Tells Chrome which language's glyph shapes to use for Chinese text.
+  panel.lang = translator.messages.htmlLang;
+  toast.lang = translator.messages.htmlLang;
+  hoverTrigger.title = translator.t("panelHoverTitle");
+  panel.querySelector("#pg-brand").textContent = translator.t("appName");
+  els.openOptions.setAttribute("aria-label", translator.t("panelOpenSettings"));
+  els.openOptions.title = translator.t("panelOpenSettings");
+  els.close.textContent = translator.t("panelClose");
+  panel.querySelector("#pg-prompt-heading").textContent = translator.t("panelPromptTitle");
+  els.detailShort.textContent = translator.t("panelShort");
+  els.detailFull.textContent = translator.t("panelFull");
+  els.input.placeholder = translator.t("panelPromptPlaceholder");
+  els.copy.textContent = translator.t("panelCopy");
+  els.analyze.textContent = translator.t("panelReanalyze");
+  panel.querySelector("#pg-generate-heading").textContent = translator.t("panelGenerateTitle");
+  panel.querySelector("#pg-ratio-label").textContent = translator.t("panelAspectRatio");
+  els.generate.textContent = translator.t("panelGenerate");
+  panel.querySelector("#pg-credit").textContent = translator.t("panelCredit");
+}
+
 function bindEvents() {
   document.addEventListener("pointermove", handlePointerMove, true);
   document.addEventListener("scroll", updateHoverButtonPosition, true);
   window.addEventListener("resize", updateHoverButtonPosition);
+  document.addEventListener(
+    "contextmenu",
+    (event) => {
+      state.contextPoint = { x: event.clientX, y: event.clientY };
+    },
+    true
+  );
 
   hoverTrigger.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
     if (!state.hoverImage) return;
-    await openPanelForImage(state.hoverImage);
+    await openPanelForSource(createImageSource(state.hoverImage));
   });
 
   els.close.addEventListener("click", closePanel);
@@ -184,17 +245,17 @@ function bindEvents() {
   els.ratioSelect.addEventListener("change", () => {
     state.panelData.aspectRatio = els.ratioSelect.value;
     persistPanelImageCache();
-    setStatus(`生图比例已切换为 ${state.panelData.aspectRatio}`);
+    setStatus(t("panelRatioChanged", { ratio: state.panelData.aspectRatio }));
   });
 
   els.copy.addEventListener("click", async () => {
     const text = getCurrentPrompt().trim();
     if (!text) {
-      setStatus("没有可复制的提示词。", "error");
+      setStatus(t("panelNoPromptToCopy"), "error");
       return;
     }
     await navigator.clipboard.writeText(text);
-    setStatus("提示词已复制。", "success");
+    setStatus(t("panelPromptCopied"), "success");
   });
 
   els.generate.addEventListener("click", () => generateFromCurrentPrompt());
@@ -233,7 +294,7 @@ function handleInlinePreviewClick(event) {
         images: image ? [image] : []
       }
     }).catch((error) => {
-      setStatus(error.message || "打开新页面失败。", "error");
+      setStatus(error.message || t("panelOpenViewerFailed"), "error");
     });
   }
 }
@@ -282,20 +343,66 @@ function hideHoverButton() {
   hoverTrigger.style.display = "none";
 }
 
-async function openPanelForImage(image) {
+// A source is what the panel analyzes: an <img> element, an image URL found
+// some other way (CSS background, image inside an iframe), or a screenshot of
+// part of the page. `key` identifies it in imageCache.
+function createImageSource(image) {
+  const url = image.currentSrc || image.src;
+  return {
+    key: url,
+    element: image,
+    cropElement: image,
+    imageUrl: url,
+    dataUrl: "",
+    previewUrl: url,
+    alt: image.alt || "",
+    title: image.alt?.trim() || "",
+    label: url
+  };
+}
+
+function createUrlSource(url, cropElement = null) {
+  return {
+    key: url,
+    element: null,
+    cropElement,
+    imageUrl: url,
+    dataUrl: "",
+    previewUrl: url,
+    alt: "",
+    title: "",
+    label: url
+  };
+}
+
+function createCapturedSource(dataUrl, title) {
+  return {
+    key: `capture:${Date.now()}`,
+    element: null,
+    cropElement: null,
+    imageUrl: "",
+    dataUrl,
+    previewUrl: dataUrl,
+    alt: "",
+    title,
+    label: ""
+  };
+}
+
+async function openPanelForSource(source) {
   state.settings = await sendMessage({ type: "get-settings" });
-  state.panelImage = image;
+  applyStaticTranslations();
+  state.panelSource = source;
   state.panelOpen = true;
   panel.classList.add("pg-open");
 
-  const imageUrl = image.currentSrc || image.src;
-  els.previewImage.src = imageUrl;
-  els.imageTitle.textContent = image.alt?.trim() || "网页图片";
-  els.imageUrl.textContent = truncateMiddle(imageUrl, 52);
+  els.previewImage.src = source.previewUrl;
+  els.imageTitle.textContent = source.title || t("panelWebImage");
+  els.imageUrl.textContent = truncateMiddle(source.label || t("panelScreenshotLabel"), 52);
   state.currentJob = null;
   renderInlineImages([]);
 
-  const cached = imageCache.get(imageUrl);
+  const cached = imageCache.get(source.key);
   if (cached) {
     hydratePanelData(cached);
     return;
@@ -303,11 +410,12 @@ async function openPanelForImage(image) {
 
   state.panelData = createEmptyPanelData();
   state.panelData.detail = "full";
+  state.panelData.language = "en";
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
   renderRatioSelect();
   syncGenerationVisibility();
   syncPromptControls();
-  setStatus("等待识别...");
+  setStatus(t("panelWaitingAnalyze"));
 
   if (state.settings?.autoAnalyze) {
     await analyzeCurrentImage({ force: false });
@@ -320,34 +428,32 @@ function closePanel() {
 }
 
 async function analyzeCurrentImage({ force }) {
-  if (!state.panelImage) return;
+  const targetSource = state.panelSource;
+  if (!targetSource?.key) return;
 
-  const imageUrl = state.panelImage.currentSrc || state.panelImage.src;
-  if (!imageUrl) return;
-
-  if (!force && imageCache.has(imageUrl)) {
-    hydratePanelData(imageCache.get(imageUrl));
+  if (!force && imageCache.has(targetSource.key)) {
+    hydratePanelData(imageCache.get(targetSource.key));
     return;
   }
 
-  await runAction("analyze", "正在识别图片内容...", async () => {
-    const imageDataUrl = await captureImageDataUrl(state.panelImage);
-    const screenshotCrop = getImageViewportCrop(state.panelImage);
+  await runAction("analyze", t("panelAnalyzing"), async () => {
+    const imageDataUrl = targetSource.dataUrl || (await captureImageDataUrl(targetSource.element));
+    const screenshotCrop = getViewportCrop(targetSource.cropElement);
     const result = await sendMessage({
       type: "analyze-image",
       payload: {
-        imageUrl,
+        imageUrl: targetSource.imageUrl,
         imageDataUrl,
         screenshotCrop,
         pageUrl: location.href,
-        alt: state.panelImage.alt || ""
+        alt: targetSource.alt
       }
     });
 
     const cached = {
-      title: result.title || "图片提示词",
+      title: result.title || t("panelPromptTitleFallback"),
       detail: state.panelData.detail || "full",
-      language: state.panelData.language || "zh",
+      language: "en",
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
       structuredPrompt: result.structuredPrompt || null,
       analysis: result.analysis || null,
@@ -364,9 +470,26 @@ async function analyzeCurrentImage({ force }) {
       }
     };
 
-    imageCache.set(imageUrl, cached);
-    hydratePanelData(cached);
+    imageCache.set(targetSource.key, cached);
+    // The user may have opened the panel on another image while this request
+    // was in flight; only show the result if it still belongs to the panel.
+    if (state.panelSource === targetSource) {
+      hydratePanelData(cached);
+    }
   });
+
+  // An analysis for a newly opened image is skipped while another one is busy,
+  // so start it once the previous request has finished.
+  const currentSource = state.panelSource;
+  if (
+    state.panelOpen &&
+    currentSource &&
+    currentSource !== targetSource &&
+    !imageCache.has(currentSource.key) &&
+    state.settings?.autoAnalyze
+  ) {
+    await analyzeCurrentImage({ force: false });
+  }
 }
 
 function switchDetail(detail) {
@@ -375,7 +498,13 @@ function switchDetail(detail) {
 }
 
 function togglePromptLanguage() {
-  const current = state.panelData.language || "zh";
+  if (!state.settings?.enableChineseRecognition) {
+    state.panelData.language = "en";
+    syncPromptControls();
+    return;
+  }
+
+  const current = state.panelData.language || "en";
   state.panelData.language = current === "en" ? "zh" : "en";
   syncPromptControls();
   renderStructureView();
@@ -383,10 +512,11 @@ function togglePromptLanguage() {
 }
 
 function hydratePanelData(data) {
+  const preferredLanguage = data.language || data.languageByDetail?.[data.detail || "full"] || "en";
   state.panelData = {
-    title: data.title || "图片提示词",
+    title: data.title || t("panelPromptTitleFallback"),
     detail: data.detail || "full",
-    language: data.language || data.languageByDetail?.[data.detail || "full"] || "zh",
+    language: state.settings?.enableChineseRecognition ? preferredLanguage : "en",
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     structuredPrompt: data.structuredPrompt || null,
     analysis: data.analysis || null,
@@ -397,19 +527,20 @@ function hydratePanelData(data) {
     }
   };
 
-  els.imageTitle.textContent = state.panelData.title || "图片提示词";
+  els.imageTitle.textContent = state.panelData.title || t("panelPromptTitleFallback");
   renderRatioSelect();
   syncGenerationVisibility();
   syncPromptControls();
   renderStructureView();
-  setStatus("识别完成，可直接编辑。", "success");
+  setStatus(t("panelAnalyzeDone"), "success");
 }
 
 function syncPromptControls() {
   els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
   els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
-  els.toggleTranslation.textContent = getCurrentLanguage() === "zh" ? "查看英文" : "查看中文";
-  els.toggleStructure.textContent = state.panelData.structureOpen ? "隐藏结构" : "查看结构";
+  els.toggleTranslation.hidden = !state.settings?.enableChineseRecognition;
+  els.toggleTranslation.textContent = getCurrentLanguage() === "zh" ? t("panelViewEnglish") : t("panelViewChinese");
+  els.toggleStructure.textContent = state.panelData.structureOpen ? t("panelHideStructure") : t("panelShowStructure");
   els.toggleStructure.classList.toggle("is-active", state.panelData.structureOpen);
   els.input.value = getCurrentPrompt();
   updateMeta();
@@ -429,7 +560,7 @@ function getCurrentPrompt() {
 }
 
 function getCurrentLanguage() {
-  return state.panelData.language || "zh";
+  return state.panelData.language || "en";
 }
 
 function normalizePromptPair(value) {
@@ -450,6 +581,7 @@ function renderStructureView() {
   const entries = getStructureEntries();
   const visible = state.panelData.structureOpen && entries.length > 0;
   els.structure.classList.toggle("pg-hidden", !visible);
+  els.structureGrid.dataset.uiLanguage = getTranslator().language;
 
   if (!visible) {
     els.structureGrid.innerHTML = "";
@@ -460,7 +592,7 @@ function renderStructureView() {
     .map(
       (entry) => `
         <div class="pg-structure-row">
-          <span class="pg-structure-label">${escapeHtml(entry.label)}</span>
+          <span class="pg-structure-label">${escapeHtml(getStructureLabel(entry.label))}</span>
           <p class="pg-structure-value">${escapeHtml(entry.value)}</p>
         </div>
       `
@@ -505,19 +637,19 @@ function normalizeStructureLabel(label) {
   const rawLabel = String(label || "").trim();
   const normalized = rawLabel.toLowerCase().replace(/\s+/g, "");
 
-  if (/^subject|主体/.test(normalized)) return "主体";
-  if (/^style|风格/.test(normalized)) return "风格";
-  if (/^lighting|光线|光影/.test(normalized)) return "光线";
-  if (/^camera|镜头/.test(normalized)) return "镜头";
-  if (/^environment|环境/.test(normalized)) return "环境";
-  if (/^material|材质/.test(normalized)) return "材质";
-  if (/^composition|构图/.test(normalized)) return "构图";
-  if (/^rendering|渲染/.test(normalized)) return "渲染";
+  if (/^subject|主体/.test(normalized)) return "subject";
+  if (/^style|风格/.test(normalized)) return "style";
+  if (/^lighting|光线|光影/.test(normalized)) return "lighting";
+  if (/^camera|镜头/.test(normalized)) return "camera";
+  if (/^environment|环境/.test(normalized)) return "environment";
+  if (/^material|材质/.test(normalized)) return "material";
+  if (/^composition|构图/.test(normalized)) return "composition";
+  if (/^rendering|渲染/.test(normalized)) return "rendering";
   return "";
 }
 
 function orderStructureEntries(entries) {
-  const labelOrder = ["主体", "风格", "光线", "镜头", "环境", "材质", "构图", "渲染"];
+  const labelOrder = ["subject", "style", "lighting", "camera", "environment", "material", "composition", "rendering"];
   const entryMap = new Map();
 
   for (const entry of entries) {
@@ -531,18 +663,33 @@ function entriesHaveChinese(entries) {
   return entries.some((entry) => /[\u4e00-\u9fff]/.test(entry.value));
 }
 
+function getStructureLabel(key) {
+  const labelMap = {
+    subject: "structureSubject",
+    style: "structureStyle",
+    lighting: "structureLighting",
+    camera: "structureCamera",
+    environment: "structureEnvironment",
+    material: "structureMaterial",
+    composition: "structureComposition",
+    rendering: "structureRendering"
+  };
+
+  return t(labelMap[key] || key);
+}
+
 function buildStructureEntriesFromAnalysis(analysis) {
   if (!analysis || typeof analysis !== "object") return [];
 
   const rows = [
-    ["主体", joinValues([analysis.subject?.main, ...(analysis.subject?.attributes || []), analysis.subject?.action])],
-    ["风格", joinValues([analysis.style?.medium, analysis.style?.genre, analysis.style?.mood, analysis.style?.referenceLook])],
-    ["光线", joinValues([analysis.lighting?.direction, analysis.lighting?.quality, analysis.lighting?.effect, analysis.lighting?.timeOfDay])],
-    ["镜头", joinValues([analysis.camera?.focalLength, analysis.camera?.aperture, analysis.camera?.angle, analysis.camera?.shotType, analysis.camera?.depthOfField])],
-    ["环境", joinValues([analysis.environment?.sceneType, analysis.environment?.backgroundMaterial, analysis.environment?.spatialRelation])],
-    ["材质", joinValues([analysis.material?.surface, analysis.material?.microDetail, ...(analysis.material?.opticalProperties || [])])],
-    ["构图", joinValues([analysis.composition?.layout, analysis.composition?.subjectPlacement, analysis.composition?.foreground, analysis.composition?.background, analysis.composition?.leadingLines, analysis.composition?.symmetry])],
-    ["渲染", joinValues([analysis.rendering?.colorGrade, ...(analysis.rendering?.deviceLook || []), ...(analysis.rendering?.priorityTerms || [])])]
+    ["subject", joinValues([analysis.subject?.main, ...(analysis.subject?.attributes || []), analysis.subject?.action])],
+    ["style", joinValues([analysis.style?.medium, analysis.style?.genre, analysis.style?.mood, analysis.style?.referenceLook])],
+    ["lighting", joinValues([analysis.lighting?.direction, analysis.lighting?.quality, analysis.lighting?.effect, analysis.lighting?.timeOfDay])],
+    ["camera", joinValues([analysis.camera?.focalLength, analysis.camera?.aperture, analysis.camera?.angle, analysis.camera?.shotType, analysis.camera?.depthOfField])],
+    ["environment", joinValues([analysis.environment?.sceneType, analysis.environment?.backgroundMaterial, analysis.environment?.spatialRelation])],
+    ["material", joinValues([analysis.material?.surface, analysis.material?.microDetail, ...(analysis.material?.opticalProperties || [])])],
+    ["composition", joinValues([analysis.composition?.layout, analysis.composition?.subjectPlacement, analysis.composition?.foreground, analysis.composition?.background, analysis.composition?.leadingLines, analysis.composition?.symmetry])],
+    ["rendering", joinValues([analysis.rendering?.colorGrade, ...(analysis.rendering?.deviceLook || []), ...(analysis.rendering?.priorityTerms || [])])]
   ];
 
   return rows
@@ -565,17 +712,17 @@ function escapeHtml(text) {
 
 async function generateFromCurrentPrompt() {
   if (!state.settings?.imageGenerationEnabled) {
-    setStatus("生图功能当前已关闭。", "error");
+    setStatus(t("panelGenerationDisabled"), "error");
     return;
   }
 
   const prompt = getCurrentPrompt().trim();
   if (!prompt) {
-    setStatus("请先识别或输入提示词。", "error");
+    setStatus(t("panelPromptRequired"), "error");
     return;
   }
 
-  await runAction("generate", "正在生图，结果会显示在当前弹窗...", async () => {
+  await runAction("generate", t("panelGenerating"), async () => {
     const result = await sendMessage({
       type: "generate-image",
       payload: {
@@ -591,15 +738,13 @@ async function generateFromCurrentPrompt() {
     };
 
     renderInlineImages(state.currentJob.images);
-    setStatus("生图完成，预览已更新。", "success");
+    setStatus(t("panelGenerated"), "success");
   });
 }
 
 function persistPanelImageCache() {
-  if (!state.panelImage) return;
-  const imageUrl = state.panelImage.currentSrc || state.panelImage.src;
-  if (!imageUrl) return;
-  imageCache.set(imageUrl, structuredClone(state.panelData));
+  if (!state.panelSource?.key) return;
+  imageCache.set(state.panelSource.key, structuredClone(state.panelData));
 }
 
 function renderInlineImages(images) {
@@ -618,8 +763,8 @@ function renderInlineImages(images) {
           <div class="pg-preview-frame">
             <img src="${src}" alt="generated preview ${index + 1}" />
             <div class="pg-preview-overlay">
-              <button class="pg-preview-action" data-role="download" data-index="${index}" type="button">下载图片</button>
-              <button class="pg-preview-action" data-role="viewer" data-index="${index}" type="button">新页面打开</button>
+              <button class="pg-preview-action" data-role="download" data-index="${index}" type="button">${escapeHtml(t("panelDownloadImage"))}</button>
+              <button class="pg-preview-action" data-role="viewer" data-index="${index}" type="button">${escapeHtml(t("panelOpenViewer"))}</button>
             </div>
           </div>
         </article>
@@ -645,7 +790,7 @@ function triggerDownload(src, filename) {
 
 function updateMeta() {
   const text = els.input.value || "";
-  els.charCount.textContent = `${text.length} 字`;
+  els.charCount.textContent = t("panelChars", { count: text.length });
 }
 
 async function runAction(actionName, statusText, task) {
@@ -658,7 +803,7 @@ async function runAction(actionName, statusText, task) {
   try {
     await task();
   } catch (error) {
-    setStatus(error.message || "发生错误，请稍后重试。", "error");
+    setStatus(error.message || t("panelActionError"), "error");
   } finally {
     state.actionState[actionName] = false;
     syncActionState();
@@ -707,15 +852,13 @@ async function captureImageDataUrl(image) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(image, 0, 0, width, height);
-          const blob = await canvas.convertToBlob({
-            type: "image/png"
-          });
+          const blob = await canvas.convertToBlob({ type: "image/png" });
           return await blobToDataUrl(blob);
         }
       }
     }
   } catch (_error) {
-    // Cross-origin images may taint the canvas. Fallback to URL fetch in the background worker.
+    // Cross-origin images can taint the canvas. Fallbacks continue below.
   }
 
   try {
@@ -727,16 +870,16 @@ async function captureImageDataUrl(image) {
       return await blobToDataUrl(blob);
     }
   } catch (_error) {
-    // Some sites still block content-script fetches. The background worker keeps the final fallback path.
+    // Some sites block content-script fetches. The background worker has a final fallback path.
   }
 
   return "";
 }
 
-function getImageViewportCrop(image) {
-  if (!(image instanceof HTMLImageElement)) return null;
+function getViewportCrop(element) {
+  if (!(element instanceof Element)) return null;
 
-  const rect = image.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
   const x = Math.max(0, rect.left);
   const y = Math.max(0, rect.top);
   const right = Math.min(window.innerWidth, rect.right);
@@ -762,6 +905,238 @@ function blobToDataUrl(blob) {
     reader.onerror = () => reject(reader.error || new Error("Failed to read image blob."));
     reader.readAsDataURL(blob);
   });
+}
+
+async function handleContextAnalyze({ srcUrl, inSubframe }) {
+  const point = inSubframe ? null : state.contextPoint;
+  const target = point ? findTargetAtPoint(point.x, point.y) : null;
+
+  if (target?.image) {
+    await openPanelForSource(createImageSource(target.image));
+    return;
+  }
+
+  if (target?.backgroundUrl) {
+    await openPanelForSource(createUrlSource(target.backgroundUrl, target.element));
+    return;
+  }
+
+  if (target?.element) {
+    // Canvas and video pixels are often unreadable (cross-origin, WebGL, DRM),
+    // so analyze what is on screen instead.
+    const dataUrl = await captureViewportRegion(getViewportCrop(target.element));
+    const title = t(target.element instanceof HTMLVideoElement ? "panelVideoFrameTitle" : "panelCanvasTitle");
+    await openPanelForSource(createCapturedSource(dataUrl, title));
+    return;
+  }
+
+  if (srcUrl) {
+    await openPanelForSource(createUrlSource(srcUrl));
+    return;
+  }
+
+  showToast(t("contextNoImageFound"));
+  startRegionSelection();
+}
+
+// elementsFromPoint also returns elements underneath transparent overlays,
+// which is how sites like Pinterest and Instagram cover their images.
+function findTargetAtPoint(x, y) {
+  for (const element of document.elementsFromPoint(x, y)) {
+    if (isOwnUiElement(element)) continue;
+    if (element === document.documentElement || element === document.body) continue;
+
+    if (element instanceof HTMLImageElement && (element.currentSrc || element.src)) {
+      return { image: element };
+    }
+    if (element instanceof HTMLCanvasElement || element instanceof HTMLVideoElement) {
+      return { element };
+    }
+
+    const backgroundUrl = getBackgroundImageUrl(element);
+    if (backgroundUrl) {
+      return { element, backgroundUrl };
+    }
+  }
+
+  // elementsFromPoint skips elements with pointer-events: none.
+  const image = findImageContainingPoint(x, y);
+  return image ? { image } : null;
+}
+
+function findImageContainingPoint(x, y) {
+  let best = null;
+  let bestArea = Infinity;
+
+  for (const image of document.images) {
+    if (!(image.currentSrc || image.src)) continue;
+    const rect = image.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+
+    const area = rect.width * rect.height;
+    if (area > 0 && area < bestArea) {
+      best = image;
+      bestArea = area;
+    }
+  }
+
+  return best;
+}
+
+function getBackgroundImageUrl(element) {
+  const rect = element.getBoundingClientRect();
+  // Skips icon sprites, which are small and would analyze the whole sheet.
+  if (rect.width < MIN_BACKGROUND_IMAGE_SIZE || rect.height < MIN_BACKGROUND_IMAGE_SIZE) return "";
+
+  const match = getComputedStyle(element).backgroundImage.match(/url\(\s*(["']?)(.*?)\1\s*\)/);
+  if (!match?.[2]) return "";
+
+  try {
+    return new URL(match[2], document.baseURI).href;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function isOwnUiElement(element) {
+  return (
+    element === hoverTrigger ||
+    element === toast ||
+    panel.contains(element) ||
+    Boolean(element.closest?.("#pg-region-overlay"))
+  );
+}
+
+function startRegionSelection() {
+  if (state.regionSelecting) return;
+  state.regionSelecting = true;
+  hideHoverButton();
+  // Hide the panel while selecting so the page looks exactly like the
+  // screenshot will, instead of the panel covering part of it.
+  const restoreUi = hideOwnUiForCapture([panel, hoverTrigger]);
+
+  const overlay = document.createElement("div");
+  overlay.id = "pg-region-overlay";
+  overlay.lang = getTranslator().messages.htmlLang;
+  overlay.innerHTML = `
+    <div class="pg-region-hint">${escapeHtml(t("regionSelectHint"))}</div>
+    <div class="pg-region-box"></div>
+  `;
+  const box = overlay.querySelector(".pg-region-box");
+  let start = null;
+  let selection = null;
+
+  const updateSelection = (event) => {
+    const left = Math.max(0, Math.min(start.x, event.clientX));
+    const top = Math.max(0, Math.min(start.y, event.clientY));
+    const right = Math.min(window.innerWidth, Math.max(start.x, event.clientX));
+    const bottom = Math.min(window.innerHeight, Math.max(start.y, event.clientY));
+    selection = { x: left, y: top, width: right - left, height: bottom - top };
+
+    box.style.left = `${selection.x}px`;
+    box.style.top = `${selection.y}px`;
+    box.style.width = `${selection.width}px`;
+    box.style.height = `${selection.height}px`;
+    box.classList.add("is-visible");
+  };
+
+  const onKeyDown = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    finish(null);
+  };
+
+  const finish = async (selected) => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeyDown, true);
+    state.regionSelecting = false;
+    // captureViewportRegion hides the panel again in the same task, so it is
+    // not painted in between.
+    restoreUi();
+    if (!selected) return;
+
+    try {
+      const dataUrl = await captureViewportRegion({
+        ...selected,
+        devicePixelRatio: window.devicePixelRatio || 1
+      });
+      await openPanelForSource(createCapturedSource(dataUrl, t("panelRegionTitle")));
+    } catch (error) {
+      showToast(error.message || t("regionCaptureFailed"));
+    }
+  };
+
+  overlay.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    start = { x: event.clientX, y: event.clientY };
+    overlay.setPointerCapture(event.pointerId);
+    updateSelection(event);
+  });
+  overlay.addEventListener("pointermove", (event) => {
+    if (start) updateSelection(event);
+  });
+  overlay.addEventListener("pointerup", (event) => {
+    if (!start) return;
+    updateSelection(event);
+    start = null;
+    const isLargeEnough =
+      selection.width >= MIN_SELECTION_SIZE && selection.height >= MIN_SELECTION_SIZE;
+    finish(isLargeEnough ? selection : null);
+  });
+  overlay.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    finish(null);
+  });
+
+  document.addEventListener("keydown", onKeyDown, true);
+  document.documentElement.append(overlay);
+}
+
+// The screenshot is taken by the background worker from what is painted on
+// screen, so the panel and buttons are hidden until the capture is done.
+async function captureViewportRegion(crop) {
+  if (!crop) {
+    throw new Error(t("regionOutOfView"));
+  }
+
+  const restore = hideOwnUiForCapture();
+  try {
+    await waitForNextPaint();
+    const result = await sendMessage({ type: "capture-region", payload: { crop } });
+    return result.dataUrl;
+  } finally {
+    restore();
+  }
+}
+
+function hideOwnUiForCapture(elements = [panel, hoverTrigger, toast]) {
+  const previous = elements.map((element) => element.style.visibility);
+  elements.forEach((element) => {
+    element.style.visibility = "hidden";
+  });
+
+  return () => {
+    elements.forEach((element, index) => {
+      element.style.visibility = previous[index];
+    });
+  };
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 30)));
+  });
+}
+
+function showToast(text) {
+  toast.textContent = text;
+  toast.classList.add("is-visible");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => {
+    toast.classList.remove("is-visible");
+  }, 3200);
 }
 
 async function sendMessage(message) {

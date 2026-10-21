@@ -1,3 +1,5 @@
+import "./i18n.js";
+
 const DEFAULT_SETTINGS = {
   provider: "gemini",
   promptProvider: "gemini",
@@ -17,7 +19,9 @@ const DEFAULT_SETTINGS = {
   geminiImageModel: "gemini-3.1-flash-image-preview",
   customProxyUrl: "",
   customProxyToken: "",
+  uiLanguage: "auto",
   autoAnalyze: true,
+  enableChineseRecognition: true,
   aspectRatio: "1:1",
   imageCount: 1,
   providerProfiles: {},
@@ -45,7 +49,13 @@ const VIEWER_DB_NAME = "image-lens-db";
 const VIEWER_STORE_NAME = "viewer_payloads";
 const VIEWER_RECORD_ID = "current";
 
+const CONTEXT_MENU_ANALYZE_IMAGE = "image-lens-analyze-image";
+const CONTEXT_MENU_SELECT_REGION = "image-lens-select-region";
+const SELECT_REGION_COMMAND = "select-region";
+
 chrome.runtime.onInstalled.addListener(async () => {
+  await setupContextMenus();
+
   const existing = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
   const missing = Object.fromEntries(
     Object.entries(DEFAULT_SETTINGS).filter(([key]) => !(key in existing))
@@ -66,6 +76,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === CONTEXT_MENU_SELECT_REGION) {
+    sendToTab(tab, { type: "start-region-selection" });
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_ANALYZE_IMAGE) {
+    sendToTab(tab, {
+      type: "context-analyze-image",
+      payload: {
+        srcUrl: info.mediaType === "image" ? info.srcUrl || "" : "",
+        // The content script only runs in the top frame, so the right-click
+        // position it recorded does not apply to clicks inside an iframe.
+        inSubframe: Boolean(info.frameId)
+      }
+    });
+  }
+});
+
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command === SELECT_REGION_COMMAND) {
+    sendToTab(tab, { type: "start-region-selection" });
+  }
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  sendToTab(tab, { type: "start-region-selection" });
+});
+
+// Menu titles follow the UI language setting, so this also runs after the
+// settings are saved.
+async function setupContextMenus() {
+  const { uiLanguage } = await chrome.storage.local.get("uiLanguage");
+  const t = getSettingsTranslator({ uiLanguage }).t;
+
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_ANALYZE_IMAGE,
+    title: t("contextMenuAnalyzeImage"),
+    contexts: ["page", "image", "link", "video", "frame"]
+  });
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_SELECT_REGION,
+    title: t("contextMenuSelectRegion"),
+    contexts: ["page", "image", "link", "video", "frame", "selection"]
+  });
+}
+
+function sendToTab(tab, message) {
+  if (tab?.id === undefined) return;
+
+  chrome.tabs.sendMessage(tab.id, message, { frameId: 0 }).catch((error) => {
+    // Pages opened before the extension was installed or updated, and
+    // chrome:// pages, have no content script to receive the message.
+    console.warn("[Image Lens] Could not reach the page. Reload it and try again.", error);
+  });
+}
+
 async function handleMessage(message, sender) {
   switch (message.type) {
     case "get-settings":
@@ -74,6 +142,8 @@ async function handleMessage(message, sender) {
       return saveSettings(message.payload || {});
     case "analyze-image":
       return analyzeImage(message.payload || {}, sender);
+    case "capture-region":
+      return captureRegion(message.payload || {}, sender);
     case "generate-image":
       return generateImage(message.payload || {});
     case "open-viewer":
@@ -237,6 +307,7 @@ async function saveSettings(payload) {
     promptProvider,
     imageProvider,
     apiMode: sanitized.apiMode || current.apiMode || "direct",
+    uiLanguage: "uiLanguage" in sanitized ? sanitized.uiLanguage : current.uiLanguage || "auto",
     providerProfiles,
     promptProviderProfiles,
     imageProviderProfiles,
@@ -254,7 +325,11 @@ async function saveSettings(payload) {
     customProxyUrl:
       "customProxyUrl" in sanitized ? sanitized.customProxyUrl : current.customProxyUrl || "",
     customProxyToken:
-      "customProxyToken" in sanitized ? sanitized.customProxyToken : current.customProxyToken || ""
+      "customProxyToken" in sanitized ? sanitized.customProxyToken : current.customProxyToken || "",
+    enableChineseRecognition:
+      "enableChineseRecognition" in sanitized
+        ? sanitized.enableChineseRecognition
+        : current.enableChineseRecognition !== false
   };
 
   next.geminiApiKey = providerProfiles.gemini?.promptApiKey || current.geminiApiKey || "";
@@ -262,6 +337,7 @@ async function saveSettings(payload) {
   next.geminiImageModel = providerProfiles.gemini?.imageModel || current.geminiImageModel || DEFAULT_IMAGE_MODEL;
 
   await chrome.storage.local.set(next);
+  await setupContextMenus();
   return getSettings();
 }
 
@@ -624,6 +700,10 @@ function normalizeProviderName(value) {
   return SUPPORTED_PROVIDERS.includes(normalized) ? normalized : "gemini";
 }
 
+function getSettingsTranslator(settings) {
+  return globalThis.ImageLensI18n.createTranslator(settings?.uiLanguage || "auto");
+}
+
 async function analyzeImage(payload, sender) {
   const settings = await getSettings();
   const imageUrl = normalizeImageUrl(payload.imageUrl);
@@ -650,18 +730,31 @@ async function analyzeImage(payload, sender) {
     screenshotCrop: normalizeScreenshotCrop(payload.screenshotCrop),
     sender
   });
-  const prompt = buildAnalyzePrompt(payload);
+  const prompt = buildAnalyzePrompt(payload, {
+    includeChinese: settings.enableChineseRecognition
+  });
 
   const rawText =
     settings.promptProvider === "openai-compatible"
       ? await analyzeImageWithOpenAICompatible(settings, imagePart, prompt)
       : await analyzeImageWithGemini(settings, imagePart, prompt);
-  const parsed = parseLooseJson(rawText);
-  const calibrated = calibratePromptPayload(parsed);
-
-  if (!calibrated.analysis?.subject?.main && !calibrated.displayPrompts?.zhShort) {
-    throw new Error("Model did not return valid structured analysis.");
+  const t = getSettingsTranslator(settings).t;
+  let parsed;
+  try {
+    parsed = parseLooseJson(rawText);
+  } catch (_error) {
+    throw new Error(t("backgroundInvalidAnalysisJson"));
   }
+
+  // Check the raw model output: calibratePromptPayload always fills in
+  // defaults, so its result is never empty even when the model returned nothing.
+  if (!hasModelPromptContent(parsed)) {
+    throw new Error(t("backgroundEmptyAnalysis"));
+  }
+
+  const calibrated = calibratePromptPayload(parsed, {
+    includeChinese: settings.enableChineseRecognition
+  });
 
   return {
     title: calibrated.title,
@@ -682,9 +775,10 @@ async function generateImage(payload) {
   const settings = await getSettings();
   const prompt = String(payload.prompt || "").trim();
   const shouldOpenViewer = Boolean(payload.openViewer);
+  const t = getSettingsTranslator(settings).t;
 
   if (!settings.imageGenerationEnabled) {
-    throw new Error("生图功能当前已关闭。");
+    throw new Error(t("backgroundGenerationDisabled"));
   }
 
   if (!prompt) {
@@ -761,7 +855,13 @@ async function analyzeImageWithGemini(settings, imagePart, prompt) {
     ]
   });
 
-  return extractTextFromGemini(response);
+  const text = extractTextFromGemini(response);
+  if (!text) {
+    const reason =
+      response?.promptFeedback?.blockReason || response?.candidates?.[0]?.finishReason || "empty response";
+    throw new Error(getSettingsTranslator(settings).t("backgroundNoAnalysisResult", { reason }));
+  }
+  return text;
 }
 
 async function analyzeImageWithOpenAICompatible(settings, imagePart, prompt) {
@@ -786,7 +886,13 @@ async function analyzeImageWithOpenAICompatible(settings, imagePart, prompt) {
     response_format: { type: "json_object" }
   });
 
-  return extractTextFromOpenAICompatible(response);
+  const text = extractTextFromOpenAICompatible(response);
+  if (!text) {
+    const choice = response?.choices?.[0];
+    const reason = choice?.message?.refusal || choice?.finish_reason || "empty response";
+    throw new Error(getSettingsTranslator(settings).t("backgroundNoAnalysisResult", { reason }));
+  }
+  return text;
 }
 
 async function generateImageWithGemini(settings, payload, prompt) {
@@ -832,13 +938,13 @@ async function openOptionsPage() {
 
 function ensurePromptApiKey(settings) {
   if (!settings.promptApiKey) {
-    throw new Error("识别图片模型 API Key 尚未配置，请先打开设置页。");
+    throw new Error(getSettingsTranslator(settings).t("backgroundPromptApiMissing"));
   }
 }
 
 function ensureImageApiKey(settings) {
   if (!settings.imageApiKey) {
-    throw new Error("生图模型 API Key 尚未配置，请先打开设置页。");
+    throw new Error(getSettingsTranslator(settings).t("backgroundImageApiMissing"));
   }
 }
 
@@ -925,7 +1031,16 @@ function buildOpenAICompatibleUrl(baseUrl, path) {
 
 async function parseApiResponse(response) {
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_error) {
+    // Gateways often answer errors with an HTML page instead of JSON.
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}.`);
+    }
+    throw new Error("API returned a non-JSON response. Check the Base URL.");
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -963,20 +1078,38 @@ function extractTextFromOpenAICompatible(data) {
   return "";
 }
 
-function extractImagesFromOpenAICompatible(data) {
+// Returns the same { mimeType, base64Data } shape as extractImagesFromGemini,
+// which is what the panel and viewer render. URL results are downloaded here
+// because providers usually expire them after a short time.
+async function extractImagesFromOpenAICompatible(data) {
   const items = Array.isArray(data?.data) ? data.data : [];
+  const defaultMimeType = `image/${String(data?.output_format || "png").toLowerCase()}`;
 
-  return items
-    .map((item) => {
+  const images = await Promise.all(
+    items.map(async (item) => {
       if (item?.b64_json) {
-        return `data:image/png;base64,${item.b64_json}`;
+        return { mimeType: defaultMimeType, base64Data: item.b64_json };
       }
       if (item?.url) {
-        return item.url;
+        if (item.url.startsWith("data:")) {
+          const { mimeType, data: base64Data } = parseDataUrlImage(item.url);
+          return { mimeType, base64Data };
+        }
+        const response = await fetch(item.url);
+        if (!response.ok) {
+          throw new Error(`Failed to download generated image (${response.status}).`);
+        }
+        const blob = await response.blob();
+        return {
+          mimeType: blob.type || guessMimeType(item.url),
+          base64Data: arrayBufferToBase64(await blob.arrayBuffer())
+        };
       }
-      return "";
+      return null;
     })
-    .filter(Boolean);
+  );
+
+  return images.filter(Boolean);
 }
 
 function mapAspectRatioToOpenAIImageSize(aspectRatio) {
@@ -1090,8 +1223,8 @@ function extractFirstJsonObject(text) {
   return source.slice(start);
 }
 
-function buildAnalyzePrompt(payload) {
-  return [
+function buildAnalyzePrompt(payload, { includeChinese = true } = {}) {
+  const lines = [
     "角色设定：你是一位资深视觉导演与图像逆向分析师，擅长将视觉图像拆解为稳定、可编辑、可重组的结构化提示词数据。",
     "核心任务：分析上传图片，提取其核心视觉变量，输出结构化 JSON。目标不是写华丽文案，而是输出稳定、明确、可用于后续程序组装提示词的数据。",
     "总原则：优先还原原图的主体、风格、镜头语言、光线结构、材质质感、构图逻辑和空间关系；尽量填写具体、可观察、可复用的信息，不要写空泛评价。",
@@ -1103,7 +1236,7 @@ function buildAnalyzePrompt(payload) {
     "structuredPrompt.enFull 必须是纯英文，不能混入中文；每个段落必须写具体内容，不要只写标签。",
     "analysis 是结构化辅助数据，drafts 是附带草稿。",
     "字段要求：",
-    "1. title：12 字以内概括主题。",
+    "1. title：use a concise English title within 6 words.",
     "2. analysis.subject.main：主体核心描述。",
     "3. analysis.subject.attributes：主体显著特征数组。",
     "4. analysis.subject.action：主体动作、姿态或状态。",
@@ -1117,19 +1250,42 @@ function buildAnalyzePrompt(payload) {
     "12. analysis.composition：拆成 layout、subjectPlacement、foreground、background、leadingLines、symmetry。",
     "13. analysis.environment：拆成 sceneType、backgroundMaterial、spatialRelation。",
     "14. analysis.rendering：拆成 priorityTerms、deviceLook、colorGrade。",
-    "15. structuredPrompt.zhFull 必须是 structuredPrompt.enFull 的纯中文语义对应版本，也按同样顺序和分号结构输出：主体：...；风格：...；光线：...；镜头：...；环境：...；材质：...；构图：...；渲染：...",
-    "16. structuredPrompt.enShort 必须基于 structuredPrompt.enFull 精简，保留主体、风格、光线、镜头、关键材质和构图。",
-    "17. structuredPrompt.zhShort 必须基于 structuredPrompt.zhFull 精简，保留主体、风格、光线、镜头、关键材质和构图。",
-    "18. keywords：提供 6 到 12 个中文短词。",
+    "15. structuredPrompt.enShort 必须基于 structuredPrompt.enFull 精简，保留主体、风格、光线、镜头、关键材质和构图。",
+    includeChinese
+      ? "16. structuredPrompt.zhFull 必须是 structuredPrompt.enFull 的纯中文语义对应版本，也按同样顺序和分号结构输出：主体：...；风格：...；光线：...；镜头：...；环境：...；材质：...；构图：...；渲染：..."
+      : "16. structuredPrompt.zhFull 留空字符串，不要生成中文提示词。",
+    includeChinese
+      ? "17. structuredPrompt.zhShort 必须基于 structuredPrompt.zhFull 精简，保留主体、风格、光线、镜头、关键材质和构图。"
+      : "17. structuredPrompt.zhShort 留空字符串，不要生成中文提示词。",
+    includeChinese ? "18. keywords：提供 6 到 12 个中文短词。" : "18. keywords：provide 6 to 12 short English keywords.",
     "19. drafts 可复制 structuredPrompt 对应字段。",
     "20. 如果字段缺失，返回空字符串或空数组，不要编造无法观察的细节。",
     "21. 输出前先内部自检：根据 structuredPrompt.enFull 重新生成图片时，是否足以还原原图 90% 的视觉变量；如果不能，请补足缺失段落。",
     'JSON 格式：{"title":"","structuredPrompt":{"enFull":"","enShort":"","zhFull":"","zhShort":""},"analysis":{"subject":{"main":"","attributes":[],"action":""},"style":{"medium":"","genre":"","mood":"","referenceLook":""},"camera":{"focalLength":"","aperture":"","angle":"","shotType":"","depthOfField":""},"lighting":{"direction":"","quality":"","effect":"","timeOfDay":""},"material":{"surface":"","microDetail":"","opticalProperties":[]},"composition":{"layout":"","subjectPlacement":"","foreground":"","background":"","leadingLines":"","symmetry":""},"environment":{"sceneType":"","backgroundMaterial":"","spatialRelation":""},"rendering":{"priorityTerms":[],"deviceLook":[],"colorGrade":""}},"keywords":[],"drafts":{"enShort":"","enFull":"","zhShort":"","zhFull":""}}',
     `补充上下文：页面地址 ${payload.pageUrl || "unknown"}；图片 alt ${payload.alt || "none"}。`
-  ].join("\n");
+  ];
+
+  return lines.join("\n");
 }
 
-function calibratePromptPayload(parsed) {
+function hasModelPromptContent(parsed) {
+  if (!isPlainObject(parsed)) return false;
+
+  const candidates = [
+    parsed.structuredPrompt?.enFull,
+    parsed.structuredPrompt?.zhFull,
+    parsed.structuredPrompt?.enShort,
+    parsed.structuredPrompt?.zhShort,
+    pickNestedText(parsed.analysis?.subject, "main"),
+    parsed.drafts?.enFull,
+    parsed.drafts?.zhFull,
+    parsed.enPromptFull,
+    parsed.zhPromptFull
+  ];
+  return candidates.some((value) => typeof value === "string" && value.trim());
+}
+
+function calibratePromptPayload(parsed, { includeChinese = true } = {}) {
   const structuredPrompt = normalizeStructuredPrompt(parsed?.structuredPrompt);
   const promptSections = parseStructuredPromptSections(structuredPrompt.enFull);
   const analysis = fillStructuredDefaults(
@@ -1137,9 +1293,11 @@ function calibratePromptPayload(parsed) {
   );
   const drafts = normalizeDraftPrompts(parsed?.drafts, parsed, structuredPrompt);
   const keywords = normalizeKeywords(parsed?.keywords, analysis);
-  const displayPrompts = composeDisplayPrompts(analysis, drafts, structuredPrompt);
+  const displayPrompts = composeDisplayPrompts(analysis, drafts, structuredPrompt, {
+    includeChinese
+  });
 
-  return {
+  const payload = {
     title: normalizeTitle(parsed?.title, analysis),
     analysis,
     structuredPrompt,
@@ -1147,6 +1305,17 @@ function calibratePromptPayload(parsed) {
     drafts,
     displayPrompts
   };
+
+  if (!includeChinese) {
+    payload.structuredPrompt.zhFull = "";
+    payload.structuredPrompt.zhShort = "";
+    payload.drafts.zhFull = "";
+    payload.drafts.zhShort = "";
+    payload.displayPrompts.zhFull = "";
+    payload.displayPrompts.zhShort = "";
+  }
+
+  return payload;
 }
 
 function normalizeStructuredAnalysis(input) {
@@ -1154,7 +1323,7 @@ function normalizeStructuredAnalysis(input) {
 
   return {
     subject: {
-      main: normalizeTextField(source?.subject?.main || source?.subject),
+      main: normalizeTextField(pickNestedText(source?.subject, "main")),
       attributes: normalizeStringArray(source?.subject?.attributes),
       action: normalizeTextField(source?.subject?.action)
     },
@@ -1167,12 +1336,12 @@ function normalizeStructuredAnalysis(input) {
     camera: {
       focalLength: normalizeTextField(source?.camera?.focalLength),
       aperture: normalizeTextField(source?.camera?.aperture),
-      angle: normalizeTextField(source?.camera?.angle || source?.camera),
+      angle: normalizeTextField(pickNestedText(source?.camera, "angle")),
       shotType: normalizeTextField(source?.camera?.shotType),
       depthOfField: normalizeTextField(source?.camera?.depthOfField)
     },
     lighting: {
-      direction: normalizeTextField(source?.lighting?.direction || source?.lighting),
+      direction: normalizeTextField(pickNestedText(source?.lighting, "direction")),
       quality: normalizeTextField(source?.lighting?.quality),
       effect: normalizeTextField(source?.lighting?.effect),
       timeOfDay: normalizeTextField(source?.lighting?.timeOfDay)
@@ -1183,7 +1352,7 @@ function normalizeStructuredAnalysis(input) {
       opticalProperties: normalizeStringArray(source?.material?.opticalProperties)
     },
     composition: {
-      layout: normalizeTextField(source?.composition?.layout || source?.composition),
+      layout: normalizeTextField(pickNestedText(source?.composition, "layout")),
       subjectPlacement: normalizeTextField(source?.composition?.subjectPlacement),
       foreground: normalizeTextField(source?.composition?.foreground),
       background: normalizeTextField(source?.composition?.background),
@@ -1191,7 +1360,7 @@ function normalizeStructuredAnalysis(input) {
       symmetry: normalizeTextField(source?.composition?.symmetry)
     },
     environment: {
-      sceneType: normalizeTextField(source?.environment?.sceneType || source?.environment),
+      sceneType: normalizeTextField(pickNestedText(source?.environment, "sceneType")),
       backgroundMaterial: normalizeTextField(source?.environment?.backgroundMaterial),
       spatialRelation: normalizeTextField(source?.environment?.spatialRelation)
     },
@@ -1201,6 +1370,13 @@ function normalizeStructuredAnalysis(input) {
       colorGrade: normalizeTextField(source?.rendering?.colorGrade)
     }
   };
+}
+
+// Older responses used a flat string where the schema now has an object.
+// Only fall back to the raw value when it is not an object, so an object with
+// an empty field never stringifies to "[object Object]".
+function pickNestedText(value, key) {
+  return isPlainObject(value) ? value[key] : value;
 }
 
 function fillStructuredDefaults(analysis) {
@@ -1369,18 +1545,13 @@ function composePromptsFromAnalysis(analysis) {
   };
 }
 
-function composeDisplayPrompts(analysis, drafts, structuredPrompt = {}) {
+function composeDisplayPrompts(analysis, drafts, structuredPrompt = {}, { includeChinese = true } = {}) {
   const composed = composePromptsFromAnalysis(analysis);
-  const zhFull = choosePrompt(structuredPrompt.zhFull || drafts.zhFull, composed.zhFull);
-  const zhShort = choosePrompt(
-    structuredPrompt.zhShort || drafts.zhShort,
-    createChineseShortFromFull(zhFull, composed.zhShort)
-  );
   const enFull = chooseEnglishPrompt(structuredPrompt.enFull || drafts.enFull, composed.enFull, "full");
 
-  return {
-    zhFull: stripPromptSectionLabels(zhFull),
-    zhShort: expandChineseShortPrompt(stripPromptSectionLabels(zhShort), zhFull),
+  const result = {
+    zhFull: "",
+    zhShort: "",
     enFull: stripPromptSectionLabels(enFull),
     enShort: stripPromptSectionLabels(
       chooseEnglishPrompt(
@@ -1390,6 +1561,18 @@ function composeDisplayPrompts(analysis, drafts, structuredPrompt = {}) {
       )
     )
   };
+
+  if (includeChinese) {
+    const zhFull = choosePrompt(structuredPrompt.zhFull || drafts.zhFull, composed.zhFull);
+    const zhShort = choosePrompt(
+      structuredPrompt.zhShort || drafts.zhShort,
+      createChineseShortFromFull(zhFull, composed.zhShort)
+    );
+    result.zhFull = stripPromptSectionLabels(zhFull);
+    result.zhShort = expandChineseShortPrompt(stripPromptSectionLabels(zhShort), zhFull);
+  }
+
+  return result;
 }
 
 function choosePrompt(primary, fallback = "") {
@@ -1472,7 +1655,7 @@ function createEnglishShortFromFull(fullPrompt, fallback = "") {
   if (!source) return normalizeEnglishPrompt(fallback, "short");
 
   const sentences = source
-    .split(/[.!?]/)
+    .split(SENTENCE_END_PATTERN)
     .map((item) => item.trim())
     .filter(Boolean);
   const compact = sentences.slice(0, 2).join(". ");
@@ -1498,8 +1681,8 @@ function getFallbackEnglishPrompt(detail) {
 
 function normalizeTitle(input, analysis) {
   const title = normalizeTextField(input);
-  if (title) return title.slice(0, 12);
-  return normalizeTextField(analysis?.subject?.main).slice(0, 12) || "图片提示词";
+  if (title) return title.slice(0, 48);
+  return normalizeTextField(analysis?.subject?.main).slice(0, 48) || "Image Prompt";
 }
 
 function normalizeKeywords(input, analysis) {
@@ -1904,6 +2087,14 @@ function hasEnvironmentSignals(text) {
   return /(environment|background|spatial|space|scene|环境|背景|空间|场景)/i.test(text);
 }
 
+// Sentence punctuation is followed by whitespace or the end of the text, so
+// decimals like f/1.8 and ratios like 16:9 are not treated as boundaries.
+const SENTENCE_END_PATTERN = /[.!?](?=\s|$)/;
+
+function isBetweenDigits(source, offset, length) {
+  return /\d/.test(source[offset - 1] || "") && /\d/.test(source[offset + length] || "");
+}
+
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1967,13 +2158,15 @@ function normalizeEnglishPrompt(text, detail) {
     .replace(/,\s*\./g, ".")
     .replace(/\.\s*,/g, ".")
     .replace(/\s+([,.;:])/g, "$1")
-    .replace(/([,.;:])(?=\S)/g, "$1 ")
+    .replace(/([,.;:])(?=\S)/g, (match, punct, offset, source) =>
+      isBetweenDigits(source, offset, punct.length) ? punct : `${punct} `
+    )
     .replace(/^[,.;:\s]+|[,;:\s]+$/g, "")
     .trim();
 
   if (detail === "short") {
     normalized = normalized
-      .split(/[.!?]/)
+      .split(SENTENCE_END_PATTERN)
       .map((item) => item.trim())
       .filter(Boolean)
       .slice(0, 2)
@@ -2103,9 +2296,13 @@ function normalizeChinesePunctuation(text) {
     .replace(/《\s*》/g, "")
     .replace(/「\s*」/g, "")
     .replace(/『\s*』/g, "")
-    .replace(/[,.]+/g, "，")
+    .replace(/[,.]+/g, (match, offset, source) =>
+      match === "." && isBetweenDigits(source, offset, 1) ? match : "，"
+    )
     .replace(/[;；]+/g, "；")
-    .replace(/[:：]+/g, "：")
+    .replace(/[:：]+/g, (match, offset, source) =>
+      match === ":" && isBetweenDigits(source, offset, 1) ? match : "："
+    )
     .replace(/[!?！？]+/g, "。")
     .replace(/、{2,}/g, "、")
     .replace(/([，、；：]){2,}/g, "$1")
@@ -2222,6 +2419,22 @@ function normalizeScreenshotCrop(value) {
   }
 
   return crop;
+}
+
+async function captureRegion(payload, sender) {
+  const t = getSettingsTranslator(await getSettings()).t;
+  const crop = normalizeScreenshotCrop(payload.crop);
+  if (!crop) {
+    throw new Error(t("backgroundInvalidRegion"));
+  }
+  if (sender?.tab?.windowId === undefined) {
+    throw new Error(t("backgroundTabUnavailable"));
+  }
+
+  const imagePart = await captureVisibleTabImagePart(sender.tab.windowId, crop);
+  return {
+    dataUrl: `data:${imagePart.mimeType};base64,${imagePart.data}`
+  };
 }
 
 async function captureVisibleTabImagePart(windowId, crop) {

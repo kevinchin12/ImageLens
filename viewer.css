@@ -1,6 +1,10 @@
 :root {
   --text: #e5eefc;
   --text-soft: rgba(229, 238, 252, 0.72);
+  /* Mac fonts first, then Windows, then Linux; see content.css. */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC",
+    sans-serif;
 }
 
 * {
@@ -10,7 +14,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+  font-family: var(--font);
   color: var(--text);
   background:
     radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 28%),
@@ -85,6 +89,7 @@ h1 {
     linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
     rgba(255, 255, 255, 0.04);
   color: white;
+  font: inherit;
   cursor: pointer;
 }
 
