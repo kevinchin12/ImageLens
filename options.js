@@ -17,10 +17,16 @@ const PROVIDER_DOCS = {
   "openai-compatible": "https://developers.openai.com/api/docs"
 };
 
+const SECTIONS = ["analyze", "generate", "general", "about"];
+const PROVIDER_FIELD_NAMES = ["promptProvider", "imageProvider"];
+// Text fields save after typing pauses; switches and selects save right away.
+const TYPING_SAVE_DELAY = 600;
+
 let currentSettings = null;
 let currentLanguagePreference = uiLanguageField?.value || "auto";
 let promptProfileDrafts = {};
 let imageProfileDrafts = {};
+let saveTimer = null;
 
 init();
 
@@ -28,13 +34,22 @@ async function init() {
   renderLanguageChoices();
   renderProviderChoices();
   applyLanguage(currentLanguagePreference);
+  showSection(getSectionFromHash());
+  showVersion();
 
   uiLanguageField?.addEventListener("change", handleLanguagePreferenceChange);
   imageGenerationEnabledField?.addEventListener("change", syncImageSettingsVisibility);
   promptProviderField?.addEventListener("change", handlePromptProviderChange);
   imageProviderField?.addEventListener("change", handleImageProviderChange);
   form.addEventListener("submit", handleSubmit);
+  form.addEventListener("input", handleFormInput);
+  form.addEventListener("change", handleFormChange);
+  form.addEventListener("click", handleFormClick);
   docButton.addEventListener("click", openDocs);
+  for (const item of document.querySelectorAll(".nav-item")) {
+    item.addEventListener("click", () => showSection(item.dataset.section));
+  }
+  window.addEventListener("hashchange", () => showSection(getSectionFromHash()));
 
   if (!hasExtensionRuntime()) {
     setStandaloneMode();
@@ -49,28 +64,115 @@ async function init() {
     imageProfileDrafts = cloneProfiles(settings.imageProviderProfiles);
     hydrateForm(settings);
     applyLanguage(currentLanguagePreference);
-    statusEl.textContent = t("statusLoaded");
+    setStatus("");
   } catch (error) {
-    statusEl.textContent = error.message || t("statusLoadFailed");
+    setStatus(error.message || t("statusLoadFailed"), "error");
   }
+}
+
+function getSectionFromHash() {
+  const section = location.hash.replace(/^#/, "");
+  return SECTIONS.includes(section) ? section : SECTIONS[0];
+}
+
+function showSection(section) {
+  for (const element of document.querySelectorAll(".section")) {
+    element.classList.toggle("is-active", element.dataset.section === section);
+  }
+  for (const item of document.querySelectorAll(".nav-item")) {
+    const active = item.dataset.section === section;
+    item.classList.toggle("is-active", active);
+    if (active) {
+      item.setAttribute("aria-current", "page");
+    } else {
+      item.removeAttribute("aria-current");
+    }
+  }
+  if (location.hash.replace(/^#/, "") !== section) {
+    history.replaceState(null, "", `#${section}`);
+  }
+}
+
+function showVersion() {
+  const version = globalThis.chrome?.runtime?.getManifest?.()?.version;
+  if (version) setText("about-version", version);
+}
+
+function handleFormInput(event) {
+  if (event.target.matches('input[type="text"], input[type="url"], input[type="password"]')) {
+    scheduleSave(TYPING_SAVE_DELAY);
+  }
+}
+
+function handleFormChange(event) {
+  // Provider changes save through their own handlers, which first store the
+  // previous provider's values.
+  if (PROVIDER_FIELD_NAMES.includes(event.target.name)) return;
+  scheduleSave(event.target.matches('input[type="checkbox"], select') ? 0 : TYPING_SAVE_DELAY);
+}
+
+function handleFormClick(event) {
+  const providerOption = event.target.closest(".provider-option");
+  if (providerOption) {
+    const field = getField(providerOption.closest(".provider-picker").dataset.target);
+    if (field && field.value !== providerOption.dataset.value) {
+      field.value = providerOption.dataset.value;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return;
+  }
+
+  const keyToggle = event.target.closest(".key-toggle");
+  if (keyToggle) {
+    event.preventDefault();
+    const input = getField(keyToggle.dataset.keyFor);
+    if (!input) return;
+    input.type = input.type === "password" ? "text" : "password";
+    syncKeyToggles();
+  }
+}
+
+function scheduleSave(delay) {
+  if (!hasExtensionRuntime()) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveSettings();
+  }, delay);
+}
+
+// Saves right away if a save is waiting, using the given providers instead of
+// what the provider fields show now.
+async function flushPendingSave(overrides) {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  await saveSettings(overrides);
 }
 
 async function handleSubmit(event) {
   event.preventDefault();
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  await saveSettings();
+}
 
+async function saveSettings(overrides = {}) {
   if (!hasExtensionRuntime()) {
-    statusEl.textContent = t("statusOpenExtension");
+    setStatus(t("statusOpenExtension"), "error");
     return;
   }
 
-  updatePromptDraftFromForm();
-  updateImageDraftFromForm();
+  const promptProvider = overrides.promptProvider || promptProviderField?.value || "gemini";
+  const imageProvider = overrides.imageProvider || imageProviderField?.value || "gemini";
+  updatePromptDraftFromForm(promptProvider);
+  updateImageDraftFromForm(imageProvider);
 
   const formData = new FormData(form);
   const payload = {
-    provider: promptProviderField?.value || "gemini",
-    promptProvider: promptProviderField?.value || "gemini",
-    imageProvider: imageProviderField?.value || "gemini",
+    provider: promptProvider,
+    promptProvider,
+    imageProvider,
     apiMode: "direct",
     uiLanguage: uiLanguageField?.value || formData.get("uiLanguage") || "auto",
     promptApiKey: String(formData.get("promptApiKey") || ""),
@@ -86,20 +188,28 @@ async function handleSubmit(event) {
     customProxyToken: ""
   };
 
-  currentLanguagePreference = payload.uiLanguage;
-  applyLanguage(currentLanguagePreference);
-
   try {
-    statusEl.textContent = t("statusSaving");
+    setStatus(t("statusSaving"));
     const saved = await sendMessage({ type: "save-settings", payload });
-    currentSettings = saved;
-    promptProfileDrafts = cloneProfiles(saved.promptProviderProfiles);
-    imageProfileDrafts = cloneProfiles(saved.imageProviderProfiles);
-    hydrateForm(saved);
-    applyLanguage(saved.uiLanguage || "auto");
-    statusEl.textContent = t("statusSaved");
+    // Keep the form as typed: re-filling it here would undo keystrokes made
+    // while the save was in flight.
+    currentSettings = {
+      ...saved,
+      promptProvider: promptProviderField?.value || saved.promptProvider,
+      imageProvider: imageProviderField?.value || saved.imageProvider
+    };
+    setStatus(t("statusSaved"));
   } catch (error) {
-    statusEl.textContent = error.message || t("statusSaveFailed");
+    setStatus(error.message || t("statusSaveFailed"), "error");
+  }
+}
+
+function setStatus(text, tone = "") {
+  statusEl.textContent = text;
+  if (tone) {
+    statusEl.dataset.tone = tone;
+  } else {
+    delete statusEl.dataset.tone;
   }
 }
 
@@ -108,9 +218,10 @@ function handleLanguagePreferenceChange() {
   applyLanguage(currentLanguagePreference);
 }
 
-function handlePromptProviderChange() {
+async function handlePromptProviderChange() {
   const previousProvider = currentSettings?.promptProvider || "gemini";
   updatePromptDraftFromForm(previousProvider);
+  await flushPendingSave({ promptProvider: previousProvider });
   const provider = promptProviderField?.value || "gemini";
   currentSettings = {
     ...(currentSettings || {}),
@@ -118,18 +229,23 @@ function handlePromptProviderChange() {
     provider
   };
   hydratePromptFields(provider, promptProfileDrafts[provider] || {});
+  renderProviderChoices();
   syncDocsButton(provider);
+  scheduleSave(0);
 }
 
-function handleImageProviderChange() {
+async function handleImageProviderChange() {
   const previousProvider = currentSettings?.imageProvider || "gemini";
   updateImageDraftFromForm(previousProvider);
+  await flushPendingSave({ imageProvider: previousProvider });
   const provider = imageProviderField?.value || "gemini";
   currentSettings = {
     ...(currentSettings || {}),
     imageProvider: provider
   };
   hydrateImageFields(provider, imageProfileDrafts[provider] || {});
+  renderProviderChoices();
+  scheduleSave(0);
 }
 
 function hydrateForm(settings) {
@@ -227,13 +343,38 @@ function renderProviderChoices() {
 function renderProviderSelect(field, current) {
   if (!field) return;
 
-  field.innerHTML = [
-    { value: "gemini", label: t("providerGemini") },
-    { value: "openai-compatible", label: t("providerOpenAICompatible") }
-  ]
+  const providers = [
+    { value: "gemini", label: t("providerGemini"), hint: t("providerGeminiHint") },
+    { value: "openai-compatible", label: t("providerOpenAICompatible"), hint: t("providerOpenAICompatibleHint") }
+  ];
+  field.innerHTML = providers
     .map((option) => `<option value="${option.value}">${option.label}</option>`)
     .join("");
   field.value = current;
+
+  // The hidden select stays the source of truth; the cards just set it.
+  const picker = document.querySelector(`.provider-picker[data-target="${field.name}"]`);
+  if (!picker) return;
+  picker.innerHTML = providers
+    .map((option) => {
+      const active = option.value === current;
+      return `
+        <button class="provider-option${active ? " is-active" : ""}" data-value="${option.value}" type="button" role="radio" aria-checked="${active}"${field.disabled ? " disabled" : ""}>
+          <strong>${option.label}</strong>
+          <span>${option.hint}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function syncKeyToggles() {
+  for (const toggle of document.querySelectorAll(".key-toggle")) {
+    const input = getField(toggle.dataset.keyFor);
+    const visible = input?.type === "text";
+    toggle.textContent = visible ? t("hideKey") : t("showKey");
+    toggle.setAttribute("aria-pressed", String(visible));
+  }
 }
 
 function applyLanguage(preference) {
@@ -241,10 +382,19 @@ function applyLanguage(preference) {
   document.documentElement.lang = translator.messages.htmlLang;
   document.title = translator.t("optionsTitle");
 
-  setText("hero-eyebrow", translator.t("heroEyebrow"));
-  setText("hero-title", translator.t("heroTitle"));
+  setText("brand-name", translator.t("appName"));
+  setText("nav-analyze", translator.t("navAnalyze"));
+  setText("nav-generate", translator.t("navGenerate"));
+  setText("nav-general", translator.t("navGeneral"));
+  setText("nav-about", translator.t("navAbout"));
   setText("hero-subtitle", translator.t("heroSubtitle"));
-  setText("ui-language-section-title", translator.t("languageLabel"));
+  setText("general-section-title", translator.t("navGeneral"));
+  setText("about-section-title", translator.t("navAbout"));
+  setText("about-version-label", translator.t("aboutVersion"));
+  setText("about-links-label", translator.t("aboutLinks"));
+  setText("about-store", translator.t("aboutStore"));
+  setText("about-privacy", translator.t("aboutPrivacy"));
+  setText("about-credit", translator.t("panelCredit"));
   setText("ui-language-section-description", translator.t("languageSectionDescription"));
   setText("ui-language-label", translator.t("languageLabel"));
   setText("analyze-section-title", translator.t("analyzeSectionTitle"));
@@ -264,7 +414,6 @@ function applyLanguage(preference) {
   setText("image-api-key-label", getImageApiKeyLabel(imageProviderField?.value || "gemini", translator));
   setText("same-key-note", translator.t("sameKeyNote"));
   setText("image-model-label", translator.t("imageModelLabel"));
-  setText("save-button", translator.t("saveButton"));
   setText("open-doc", translator.t("docsButton"));
   setText("options-note", translator.t("optionsNote"));
 
@@ -285,6 +434,7 @@ function applyLanguage(preference) {
   renderProviderChoices();
   syncPromptProviderUI(promptProviderField?.value || "gemini");
   syncImageProviderUI(imageProviderField?.value || "gemini");
+  syncKeyToggles();
   renderDonationWidget(translator);
 }
 
@@ -331,9 +481,7 @@ function getPromptApiKeyLabel(provider, translator) {
     provider === "openai-compatible"
       ? translator.t("providerOpenAICompatible")
       : translator.t("providerGemini");
-  return translator.language === "zh"
-    ? `${providerName} API Key（识图）`
-    : `${providerName} API Key for Analysis`;
+  return `${providerName} API Key`;
 }
 
 function getImageApiKeyLabel(provider, translator) {
@@ -341,9 +489,7 @@ function getImageApiKeyLabel(provider, translator) {
     provider === "openai-compatible"
       ? translator.t("providerOpenAICompatible")
       : translator.t("providerGemini");
-  return translator.language === "zh"
-    ? `${providerName} API Key（生图）`
-    : `${providerName} API Key for Image Generation`;
+  return `${providerName} API Key`;
 }
 
 function getPromptModelPlaceholder(provider) {
@@ -500,10 +646,10 @@ function hasExtensionRuntime() {
 }
 
 function setStandaloneMode() {
-  for (const field of form.querySelectorAll("input, select, button[type='submit']")) {
+  for (const field of form.querySelectorAll("input, select, .provider-option")) {
     field.disabled = true;
   }
-  statusEl.textContent = t("statusStandalone");
+  setStatus(t("statusStandalone"), "error");
 }
 
 function t(key, values) {

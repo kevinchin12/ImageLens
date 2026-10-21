@@ -21,80 +21,98 @@ const state = {
   }
 };
 
+// Stroke icons drawn with currentColor so they follow the theme.
+const ICONS = {
+  logo: '<svg viewBox="0 0 24 24" class="pg-icon-fill"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg>',
+  settings: '<svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>',
+  close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
+  sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></svg>'
+};
+
+// Width and height of the little shape drawn in each ratio button.
+const RATIO_SHAPES = {
+  "1:1": [14, 14],
+  "3:4": [12, 16],
+  "4:3": [16, 12],
+  "9:16": [10, 17],
+  "16:9": [18, 10]
+};
+
 const hoverTrigger = document.createElement("button");
 hoverTrigger.id = "pg-hover-trigger";
 hoverTrigger.type = "button";
 hoverTrigger.title = DEFAULT_TRANSLATOR.t("panelHoverTitle");
+hoverTrigger.innerHTML = ICONS.logo;
 
 const panel = document.createElement("aside");
 panel.id = "pg-panel";
 panel.innerHTML = `
   <div class="pg-shell">
-    <div class="pg-header">
-      <div class="pg-title">
+    <header class="pg-header">
+      <div class="pg-brand">
+        <span class="pg-logo">${ICONS.logo}</span>
         <strong id="pg-brand">${escapeHtml(DEFAULT_TRANSLATOR.t("appName"))}</strong>
       </div>
       <div class="pg-header-actions">
-        <button class="pg-icon-button" id="pg-open-options" type="button" aria-label="${escapeHtml(DEFAULT_TRANSLATOR.t("panelOpenSettings"))}" title="${escapeHtml(DEFAULT_TRANSLATOR.t("panelOpenSettings"))}">⚙</button>
-        <button class="pg-close" id="pg-close" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelClose"))}</button>
+        <button class="pg-icon-button" id="pg-open-options" type="button">${ICONS.settings}</button>
+        <button class="pg-icon-button" id="pg-close" type="button">${ICONS.close}</button>
+      </div>
+    </header>
+
+    <section class="pg-source">
+      <img class="pg-thumb" id="pg-preview-image" alt="" />
+      <div class="pg-source-meta">
+        <strong id="pg-image-title"></strong>
+        <span id="pg-image-url"></span>
+      </div>
+      <button class="pg-icon-button" id="pg-analyze" type="button">${ICONS.refresh}</button>
+    </section>
+
+    <div class="pg-toolbar">
+      <div class="pg-tabs" role="tablist">
+        <button class="pg-tab" id="pg-tab-prompt" type="button" role="tab"></button>
+        <button class="pg-tab" id="pg-tab-structure" type="button" role="tab"></button>
+      </div>
+      <div class="pg-seg">
+        <button id="pg-detail-full" type="button"></button>
+        <button id="pg-detail-short" type="button"></button>
+      </div>
+      <div class="pg-seg" id="pg-lang-seg">
+        <button id="pg-lang-zh" type="button">中</button>
+        <button id="pg-lang-en" type="button">EN</button>
       </div>
     </div>
 
-    <div class="pg-row">
-      <div class="pg-preview"><img id="pg-preview-image" alt="selected image preview" /></div>
-      <div class="pg-title">
-        <strong id="pg-image-title">${escapeHtml(DEFAULT_TRANSLATOR.t("panelCurrentImage"))}</strong>
-        <span id="pg-image-url">${escapeHtml(DEFAULT_TRANSLATOR.t("panelWaitingImage"))}</span>
-      </div>
-    </div>
-
-    <section class="pg-section pg-section-prompt">
-      <div class="pg-section-head">
-        <strong id="pg-prompt-heading">${escapeHtml(DEFAULT_TRANSLATOR.t("panelPromptTitle"))}</strong>
-        <div class="pg-chip-group">
-          <button class="pg-chip" id="pg-detail-short" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelShort"))}</button>
-          <button class="pg-chip is-active" id="pg-detail-full" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelFull"))}</button>
-          <button class="pg-chip" id="pg-toggle-translation" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelViewChinese"))}</button>
-          <button class="pg-chip" id="pg-toggle-structure" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelShowStructure"))}</button>
-        </div>
-      </div>
-
-      <textarea class="pg-textarea" id="pg-prompt-input" placeholder="${escapeHtml(DEFAULT_TRANSLATOR.t("panelPromptPlaceholder"))}"></textarea>
+    <div class="pg-prompt-box">
+      <textarea class="pg-textarea" id="pg-prompt-input"></textarea>
       <div class="pg-structure pg-hidden" id="pg-structure">
         <div class="pg-structure-grid" id="pg-structure-grid"></div>
       </div>
       <div class="pg-meta">
-        <span id="pg-status">${escapeHtml(DEFAULT_TRANSLATOR.t("panelReady"))}</span>
-        <span id="pg-char-count">${escapeHtml(DEFAULT_TRANSLATOR.t("panelChars", { count: 0 }))}</span>
+        <span class="pg-status" id="pg-status"></span>
+        <span id="pg-char-count"></span>
       </div>
+    </div>
 
-      <div class="pg-actions pg-actions-fixed">
-        <button class="pg-action pg-fixed-control" id="pg-copy" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelCopy"))}</button>
-        <button class="pg-action pg-fixed-control" id="pg-analyze" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelReanalyze"))}</button>
+    <div class="pg-keywords pg-hidden" id="pg-keywords"></div>
+
+    <div class="pg-actions">
+      <button class="pg-btn pg-btn-primary" id="pg-copy" type="button">${ICONS.copy}<span id="pg-copy-label"></span></button>
+    </div>
+
+    <section class="pg-generate" id="pg-generate-section">
+      <div class="pg-generate-head">
+        <strong id="pg-generate-heading"></strong>
+        <span id="pg-generate-meta"></span>
       </div>
-    </section>
-
-    <section class="pg-section" id="pg-generate-section">
-      <div class="pg-section-head">
-        <strong id="pg-generate-heading">${escapeHtml(DEFAULT_TRANSLATOR.t("panelGenerateTitle"))}</strong>
-      </div>
-
-      <div class="pg-generate-row">
-        <label class="pg-select-wrap pg-fixed-control-wrap">
-          <span id="pg-ratio-label">${escapeHtml(DEFAULT_TRANSLATOR.t("panelAspectRatio"))}</span>
-          <select class="pg-select pg-fixed-control" id="pg-ratio-select"></select>
-        </label>
-        <div class="pg-actions pg-actions-fixed">
-          <button class="pg-action primary pg-fixed-control" id="pg-generate" type="button">${escapeHtml(DEFAULT_TRANSLATOR.t("panelGenerate"))}</button>
-        </div>
-      </div>
-
+      <div class="pg-ratios" id="pg-ratios" role="radiogroup"></div>
+      <button class="pg-btn pg-btn-secondary" id="pg-generate" type="button">${ICONS.sparkle}<span id="pg-generate-label"></span></button>
       <div class="pg-inline-preview" id="pg-inline-preview">
-        <div class="pg-inline-stack" id="pg-inline-grid"></div>
+        <div class="pg-inline-grid" id="pg-inline-grid"></div>
       </div>
     </section>
-
-    <p class="pg-credit" id="pg-credit">${escapeHtml(DEFAULT_TRANSLATOR.t("panelCredit"))}</p>
   </div>
 `;
 
@@ -113,17 +131,24 @@ const els = {
   charCount: panel.querySelector("#pg-char-count"),
   analyze: panel.querySelector("#pg-analyze"),
   copy: panel.querySelector("#pg-copy"),
+  copyLabel: panel.querySelector("#pg-copy-label"),
   generate: panel.querySelector("#pg-generate"),
+  generateLabel: panel.querySelector("#pg-generate-label"),
+  generateMeta: panel.querySelector("#pg-generate-meta"),
   close: panel.querySelector("#pg-close"),
   openOptions: panel.querySelector("#pg-open-options"),
+  tabPrompt: panel.querySelector("#pg-tab-prompt"),
+  tabStructure: panel.querySelector("#pg-tab-structure"),
   detailShort: panel.querySelector("#pg-detail-short"),
   detailFull: panel.querySelector("#pg-detail-full"),
-  toggleTranslation: panel.querySelector("#pg-toggle-translation"),
-  toggleStructure: panel.querySelector("#pg-toggle-structure"),
+  langSeg: panel.querySelector("#pg-lang-seg"),
+  langZh: panel.querySelector("#pg-lang-zh"),
+  langEn: panel.querySelector("#pg-lang-en"),
   structure: panel.querySelector("#pg-structure"),
   structureGrid: panel.querySelector("#pg-structure-grid"),
+  keywords: panel.querySelector("#pg-keywords"),
   generateSection: panel.querySelector("#pg-generate-section"),
-  ratioSelect: panel.querySelector("#pg-ratio-select"),
+  ratios: panel.querySelector("#pg-ratios"),
   inlinePreview: panel.querySelector("#pg-inline-preview"),
   inlineGrid: panel.querySelector("#pg-inline-grid")
 };
@@ -145,9 +170,9 @@ async function init() {
   const response = await sendMessage({ type: "get-settings" });
   state.settings = response;
   state.panelData.detail = "full";
-  state.panelData.language = "en";
+  state.panelData.language = getDefaultPromptLanguage();
   state.panelData.aspectRatio = state.settings.aspectRatio || "1:1";
-  renderRatioSelect();
+  renderRatioButtons();
   bindEvents();
   applyStaticTranslations();
   syncGenerationVisibility();
@@ -172,6 +197,7 @@ function createEmptyPanelData() {
     },
     structuredPrompt: null,
     analysis: null,
+    keywords: [],
     structureOpen: false
   };
 }
@@ -191,19 +217,30 @@ function applyStaticTranslations() {
   toast.lang = translator.messages.htmlLang;
   hoverTrigger.title = translator.t("panelHoverTitle");
   panel.querySelector("#pg-brand").textContent = translator.t("appName");
-  els.openOptions.setAttribute("aria-label", translator.t("panelOpenSettings"));
-  els.openOptions.title = translator.t("panelOpenSettings");
-  els.close.textContent = translator.t("panelClose");
-  panel.querySelector("#pg-prompt-heading").textContent = translator.t("panelPromptTitle");
+  setIconLabel(els.openOptions, translator.t("panelOpenSettings"));
+  setIconLabel(els.close, translator.t("panelClose"));
+  setIconLabel(els.analyze, translator.t("panelReanalyze"));
+  els.tabPrompt.textContent = translator.t("panelPromptTitle");
+  els.tabStructure.textContent = translator.t("panelStructureTab");
   els.detailShort.textContent = translator.t("panelShort");
   els.detailFull.textContent = translator.t("panelFull");
   els.input.placeholder = translator.t("panelPromptPlaceholder");
-  els.copy.textContent = translator.t("panelCopy");
-  els.analyze.textContent = translator.t("panelReanalyze");
+  els.copyLabel.textContent = translator.t("panelCopy");
   panel.querySelector("#pg-generate-heading").textContent = translator.t("panelGenerateTitle");
-  panel.querySelector("#pg-ratio-label").textContent = translator.t("panelAspectRatio");
-  els.generate.textContent = translator.t("panelGenerate");
-  panel.querySelector("#pg-credit").textContent = translator.t("panelCredit");
+  els.ratios.setAttribute("aria-label", translator.t("panelAspectRatio"));
+  els.generateLabel.textContent = translator.t("panelGenerate");
+  syncGenerateMeta();
+}
+
+function setIconLabel(button, label) {
+  button.title = label;
+  button.setAttribute("aria-label", label);
+}
+
+function syncGenerateMeta() {
+  const provider =
+    state.settings?.imageProvider === "openai-compatible" ? t("providerOpenAICompatible") : t("providerGemini");
+  els.generateMeta.textContent = t("panelGenerateMeta", { provider, count: state.settings?.imageCount || 1 });
 }
 
 function bindEvents() {
@@ -238,14 +275,19 @@ function bindEvents() {
 
   els.detailShort.addEventListener("click", () => switchDetail("short"));
   els.detailFull.addEventListener("click", () => switchDetail("full"));
-  els.toggleTranslation.addEventListener("click", togglePromptLanguage);
-  els.toggleStructure.addEventListener("click", toggleStructureView);
+  els.langZh.addEventListener("click", () => setPromptLanguage("zh"));
+  els.langEn.addEventListener("click", () => setPromptLanguage("en"));
+  els.tabPrompt.addEventListener("click", () => setStructureOpen(false));
+  els.tabStructure.addEventListener("click", () => setStructureOpen(true));
   els.analyze.addEventListener("click", () => analyzeCurrentImage({ force: true }));
+  els.previewImage.addEventListener("load", syncSourceMeta);
 
-  els.ratioSelect.addEventListener("change", () => {
-    state.panelData.aspectRatio = els.ratioSelect.value;
+  els.ratios.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ratio]");
+    if (!button) return;
+    state.panelData.aspectRatio = button.dataset.ratio;
+    renderRatioButtons();
     persistPanelImageCache();
-    setStatus(t("panelRatioChanged", { ratio: state.panelData.aspectRatio }));
   });
 
   els.copy.addEventListener("click", async () => {
@@ -254,19 +296,72 @@ function bindEvents() {
       setStatus(t("panelNoPromptToCopy"), "error");
       return;
     }
-    await navigator.clipboard.writeText(text);
-    setStatus(t("panelPromptCopied"), "success");
+    await copyText(text, t("panelPromptCopied"));
+  });
+
+  els.keywords.addEventListener("click", async (event) => {
+    const chip = event.target.closest("[data-keyword]");
+    if (!chip) return;
+    await copyText(chip.dataset.keyword, t("panelKeywordCopied", { keyword: chip.dataset.keyword }));
   });
 
   els.generate.addEventListener("click", () => generateFromCurrentPrompt());
   els.inlineGrid.addEventListener("click", handleInlinePreviewClick);
 }
 
-function renderRatioSelect() {
-  els.ratioSelect.innerHTML = RATIO_OPTIONS.map((ratio) => {
-    const selected = ratio === state.panelData.aspectRatio ? " selected" : "";
-    return `<option value="${ratio}"${selected}>${ratio}</option>`;
+async function copyText(text, successMessage) {
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus(successMessage, "success");
+  } catch (_error) {
+    setStatus(t("panelCopyFailed"), "error");
+  }
+}
+
+function renderRatioButtons() {
+  const current = state.panelData.aspectRatio || "1:1";
+  els.ratios.innerHTML = RATIO_OPTIONS.map((ratio) => {
+    const [width, height] = RATIO_SHAPES[ratio];
+    const active = ratio === current;
+    return `
+      <button class="pg-ratio${active ? " is-active" : ""}" data-ratio="${ratio}" type="button" role="radio" aria-checked="${active}">
+        <i style="width:${width}px;height:${height}px"></i>${ratio}
+      </button>
+    `;
   }).join("");
+}
+
+function renderKeywords() {
+  const keywords = state.panelData.keywords || [];
+  els.keywords.classList.toggle("pg-hidden", keywords.length === 0);
+  els.keywords.innerHTML = keywords
+    .map((keyword) => `<button class="pg-keyword" data-keyword="${escapeHtml(keyword)}" type="button">${escapeHtml(keyword)}</button>`)
+    .join("");
+}
+
+// Shows "site" under the title, plus "· width × height" once the thumbnail
+// has loaded. Until then the image element still reports the previous size.
+function syncSourceMeta(event) {
+  const source = state.panelSource;
+  if (!source) return;
+
+  const parts = [getSourceHost(source)];
+  const { naturalWidth, naturalHeight } = els.previewImage;
+  if (event?.type === "load" && naturalWidth && naturalHeight) {
+    parts.push(`${naturalWidth} × ${naturalHeight}`);
+  }
+  els.imageUrl.textContent = parts.filter(Boolean).join(" · ");
+  els.imageUrl.title = source.imageUrl || "";
+}
+
+function getSourceHost(source) {
+  if (!source.imageUrl) return t("panelScreenshotLabel");
+  try {
+    const url = new URL(source.imageUrl);
+    return /^https?:$/.test(url.protocol) ? url.hostname.replace(/^www\./, "") : location.hostname;
+  } catch (_error) {
+    return location.hostname;
+  }
 }
 
 function handleInlinePreviewClick(event) {
@@ -398,7 +493,7 @@ async function openPanelForSource(source) {
 
   els.previewImage.src = source.previewUrl;
   els.imageTitle.textContent = source.title || t("panelWebImage");
-  els.imageUrl.textContent = truncateMiddle(source.label || t("panelScreenshotLabel"), 52);
+  syncSourceMeta();
   state.currentJob = null;
   renderInlineImages([]);
 
@@ -410,11 +505,13 @@ async function openPanelForSource(source) {
 
   state.panelData = createEmptyPanelData();
   state.panelData.detail = "full";
-  state.panelData.language = "en";
+  state.panelData.language = getDefaultPromptLanguage();
   state.panelData.aspectRatio = state.settings?.aspectRatio || "1:1";
-  renderRatioSelect();
+  renderRatioButtons();
+  renderKeywords();
   syncGenerationVisibility();
   syncPromptControls();
+  renderStructureView();
   setStatus(t("panelWaitingAnalyze"));
 
   if (state.settings?.autoAnalyze) {
@@ -453,10 +550,11 @@ async function analyzeCurrentImage({ force }) {
     const cached = {
       title: result.title || t("panelPromptTitleFallback"),
       detail: state.panelData.detail || "full",
-      language: "en",
+      language: state.panelData.language || getDefaultPromptLanguage(),
       aspectRatio: state.panelData.aspectRatio || state.settings?.aspectRatio || "1:1",
       structuredPrompt: result.structuredPrompt || null,
       analysis: result.analysis || null,
+      keywords: Array.isArray(result.keywords) ? result.keywords.slice(0, 8) : [],
       structureOpen: state.panelData.structureOpen || false,
       prompts: {
         short: {
@@ -497,15 +595,8 @@ function switchDetail(detail) {
   syncPromptControls();
 }
 
-function togglePromptLanguage() {
-  if (!state.settings?.enableChineseRecognition) {
-    state.panelData.language = "en";
-    syncPromptControls();
-    return;
-  }
-
-  const current = state.panelData.language || "en";
-  state.panelData.language = current === "en" ? "zh" : "en";
+function setPromptLanguage(language) {
+  state.panelData.language = state.settings?.enableChineseRecognition ? language : "en";
   syncPromptControls();
   renderStructureView();
   persistPanelImageCache();
@@ -520,6 +611,7 @@ function hydratePanelData(data) {
     aspectRatio: data.aspectRatio || state.settings?.aspectRatio || "1:1",
     structuredPrompt: data.structuredPrompt || null,
     analysis: data.analysis || null,
+    keywords: Array.isArray(data.keywords) ? data.keywords : [],
     structureOpen: Boolean(data.structureOpen),
     prompts: {
       short: normalizePromptPair(data.prompts?.short),
@@ -528,7 +620,8 @@ function hydratePanelData(data) {
   };
 
   els.imageTitle.textContent = state.panelData.title || t("panelPromptTitleFallback");
-  renderRatioSelect();
+  renderRatioButtons();
+  renderKeywords();
   syncGenerationVisibility();
   syncPromptControls();
   renderStructureView();
@@ -536,18 +629,27 @@ function hydratePanelData(data) {
 }
 
 function syncPromptControls() {
-  els.detailShort.classList.toggle("is-active", state.panelData.detail === "short");
-  els.detailFull.classList.toggle("is-active", state.panelData.detail === "full");
-  els.toggleTranslation.hidden = !state.settings?.enableChineseRecognition;
-  els.toggleTranslation.textContent = getCurrentLanguage() === "zh" ? t("panelViewEnglish") : t("panelViewChinese");
-  els.toggleStructure.textContent = state.panelData.structureOpen ? t("panelHideStructure") : t("panelShowStructure");
-  els.toggleStructure.classList.toggle("is-active", state.panelData.structureOpen);
+  const structureOpen = state.panelData.structureOpen;
+  setPressed(els.tabPrompt, !structureOpen, "aria-selected");
+  setPressed(els.tabStructure, structureOpen, "aria-selected");
+  setPressed(els.detailShort, state.panelData.detail === "short");
+  setPressed(els.detailFull, state.panelData.detail === "full");
+  els.langSeg.classList.toggle("pg-hidden", !state.settings?.enableChineseRecognition);
+  setPressed(els.langZh, getCurrentLanguage() === "zh");
+  setPressed(els.langEn, getCurrentLanguage() === "en");
+  els.input.classList.toggle("pg-hidden", structureOpen);
+  els.charCount.classList.toggle("pg-hidden", structureOpen);
   els.input.value = getCurrentPrompt();
   updateMeta();
 }
 
-function toggleStructureView() {
-  state.panelData.structureOpen = !state.panelData.structureOpen;
+function setPressed(button, active, attribute = "aria-pressed") {
+  button.classList.toggle("is-active", active);
+  button.setAttribute(attribute, String(active));
+}
+
+function setStructureOpen(open) {
+  state.panelData.structureOpen = open;
   syncPromptControls();
   renderStructureView();
   persistPanelImageCache();
@@ -557,6 +659,11 @@ function getCurrentPrompt() {
   const detail = state.panelData.detail;
   const language = getCurrentLanguage();
   return state.panelData.prompts[detail]?.[language] || "";
+}
+
+// Chinese prompts show first when they are generated and the UI is Chinese.
+function getDefaultPromptLanguage() {
+  return state.settings?.enableChineseRecognition && getTranslator().language === "zh" ? "zh" : "en";
 }
 
 function getCurrentLanguage() {
@@ -579,12 +686,17 @@ function normalizePromptPair(value) {
 
 function renderStructureView() {
   const entries = getStructureEntries();
-  const visible = state.panelData.structureOpen && entries.length > 0;
+  const visible = state.panelData.structureOpen;
   els.structure.classList.toggle("pg-hidden", !visible);
   els.structureGrid.dataset.uiLanguage = getTranslator().language;
 
   if (!visible) {
     els.structureGrid.innerHTML = "";
+    return;
+  }
+
+  if (entries.length === 0) {
+    els.structureGrid.innerHTML = `<p class="pg-structure-empty">${escapeHtml(t("panelStructureEmpty"))}</p>`;
     return;
   }
 
@@ -828,13 +940,6 @@ function setStatus(text, tone = "") {
   } else {
     delete els.status.dataset.tone;
   }
-}
-
-function truncateMiddle(text, maxLength) {
-  if (text.length <= maxLength) return text;
-  const head = Math.ceil(maxLength / 2) - 2;
-  const tail = Math.floor(maxLength / 2) - 1;
-  return `${text.slice(0, head)}...${text.slice(-tail)}`;
 }
 
 async function captureImageDataUrl(image) {

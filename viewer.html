@@ -8,17 +8,24 @@
   </head>
   <body>
     <main class="page">
-      <section class="glass hero">
-        <div class="hero-copy">
-          <p id="viewer-eyebrow" class="eyebrow">Image Lens</p>
-          <h1 id="viewer-heading">Prompt</h1>
-          <p id="prompt" class="prompt">Loading...</p>
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z" /></svg>
+          </span>
+          <strong id="viewer-eyebrow">Image Lens</strong>
         </div>
-        <div class="hero-actions">
-          <button id="copy-prompt" type="button">Copy Prompt</button>
-          <button id="download-images" type="button">Download Images</button>
+        <div class="actions">
+          <button id="copy-prompt" class="btn" type="button">Copy Prompt</button>
+          <button id="download-images" class="btn btn-primary" type="button">Download Images</button>
         </div>
+      </header>
+
+      <section class="prompt-card">
+        <h1 id="viewer-heading">Prompt</h1>
+        <p id="prompt" class="prompt">Loading...</p>
       </section>
+
       <section id="gallery" class="gallery"></section>
     </main>
 
