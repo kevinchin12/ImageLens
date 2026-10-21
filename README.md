@@ -2,6 +2,8 @@
 
 图透镜 Image Lens 是一个 Chrome 浏览器插件，用于分析网页图片，并将图片内容反推为可编辑、可复制、可用于生图的提示词。
 
+**安装：[Chrome 应用商店 - Image Lens](https://chromewebstore.google.com/detail/image-lens/glggchlmbondgicblhopcefjgppdhnnc)**
+
 
 <img width="2214" height="1572" alt="Github封面 拷贝" src="https://github.com/user-attachments/assets/60360953-a6ee-4a3d-b029-a14ae665e938" />
 
@@ -47,6 +49,10 @@
 不同账号、地区、套餐或 API 版本可能支持不同模型。如果遇到模型不可用，请到插件选项页修改模型名称，或参考 Gemini 官方文档确认当前可用模型。
 
 ## 安装方式
+
+### 从 Chrome 应用商店安装（推荐）
+
+打开 [Chrome 应用商店 - Image Lens](https://chromewebstore.google.com/detail/image-lens/glggchlmbondgicblhopcefjgppdhnnc)，点击「添加至 Chrome」。安装后进入插件选项页填写自己的 API Key 即可使用，之后的版本更新会自动安装。
 
 ### 从源码安装
 
