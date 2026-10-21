@@ -493,11 +493,11 @@ function getImageApiKeyLabel(provider, translator) {
 }
 
 function getPromptModelPlaceholder(provider) {
-  return provider === "openai-compatible" ? "gpt-5.5" : "gemini-3.1-pro-preview";
+  return provider === "openai-compatible" ? "gpt-5.5" : "gemini-3.8-flash";
 }
 
 function getImageModelPlaceholder(provider) {
-  return provider === "openai-compatible" ? "gpt-image-2" : "gemini-3.1-flash-image-preview";
+  return provider === "openai-compatible" ? "gpt-image-2" : "gemini-nano-banana-2.1";
 }
 
 function getProviderBaseUrlPlaceholder(provider) {
@@ -592,7 +592,7 @@ function getPromptProviderDefaults(provider) {
 
   return {
     apiKey: "",
-    model: "gemini-3.1-pro-preview",
+    model: "gemini-3.8-flash",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     autoAnalyze: true
   };
@@ -611,7 +611,7 @@ function getImageProviderDefaults(provider) {
   return {
     imageGenerationEnabled: true,
     apiKey: "",
-    model: "gemini-3.1-flash-image-preview",
+    model: "gemini-nano-banana-2.1",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta"
   };
 }

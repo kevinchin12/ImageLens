@@ -13,17 +13,17 @@ const DEFAULT_SETTINGS = {
   imageProvider: "gemini",
   apiMode: "direct",
   promptApiKey: "",
-  promptModel: "gemini-3.1-pro-preview",
+  promptModel: "gemini-3.8-flash",
   promptBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
   imageGenerationEnabled: true,
   imageApiKey: "",
-  imageModel: "gemini-3.1-flash-image-preview",
+  imageModel: "gemini-nano-banana-2.1",
   imageBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
   geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
   openaiBaseUrl: "https://api.openai.com/v1",
   geminiApiKey: "",
-  geminiTextModel: "gemini-3.1-pro-preview",
-  geminiImageModel: "gemini-3.1-flash-image-preview",
+  geminiTextModel: "gemini-3.8-flash",
+  geminiImageModel: "gemini-nano-banana-2.1",
   customProxyUrl: "",
   customProxyToken: "",
   uiLanguage: "auto",
@@ -35,9 +35,9 @@ const DEFAULT_SETTINGS = {
   promptProviderProfiles: {},
   imageProviderProfiles: {}
 };
-const DEFAULT_PROMPT_MODEL = "gemini-3.1-pro-preview";
+const DEFAULT_PROMPT_MODEL = "gemini-3.8-flash";
 const LEGACY_PROMPT_MODEL = "gemini-2.5-flash";
-const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const DEFAULT_IMAGE_MODEL = "gemini-nano-banana-2.1";
 const TEMP_IMAGE_MODEL = "imagen-4.0-generate-001";
 const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -197,7 +197,7 @@ async function getSettings() {
     merged.imageBaseUrl = getProviderBaseUrl(merged.imageProvider);
   }
 
-  // Migrate the temporary Imagen fallback back to the Gemini Nano Banana 2
+  // Migrate the temporary Imagen fallback back to the current Nano Banana
   // default, now that image generation uses generateContent.
   const updates = {};
   if (merged.promptModel === LEGACY_PROMPT_MODEL) {
