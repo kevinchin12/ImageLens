@@ -671,14 +671,23 @@ async function analyzeImage(payload, sender) {
     settings.promptProvider === "openai-compatible"
       ? await analyzeImageWithOpenAICompatible(settings, imagePart, prompt)
       : await analyzeImageWithGemini(settings, imagePart, prompt);
-  const parsed = parseLooseJson(rawText);
+  const t = getSettingsTranslator(settings).t;
+  let parsed;
+  try {
+    parsed = parseLooseJson(rawText);
+  } catch (_error) {
+    throw new Error(t("backgroundInvalidAnalysisJson"));
+  }
+
+  // Check the raw model output: calibratePromptPayload always fills in
+  // defaults, so its result is never empty even when the model returned nothing.
+  if (!hasModelPromptContent(parsed)) {
+    throw new Error(t("backgroundEmptyAnalysis"));
+  }
+
   const calibrated = calibratePromptPayload(parsed, {
     includeChinese: settings.enableChineseRecognition
   });
-
-  if (!calibrated.analysis?.subject?.main && !calibrated.displayPrompts?.enShort) {
-    throw new Error("Model did not return valid structured analysis.");
-  }
 
   return {
     title: calibrated.title,
@@ -779,7 +788,13 @@ async function analyzeImageWithGemini(settings, imagePart, prompt) {
     ]
   });
 
-  return extractTextFromGemini(response);
+  const text = extractTextFromGemini(response);
+  if (!text) {
+    const reason =
+      response?.promptFeedback?.blockReason || response?.candidates?.[0]?.finishReason || "empty response";
+    throw new Error(getSettingsTranslator(settings).t("backgroundNoAnalysisResult", { reason }));
+  }
+  return text;
 }
 
 async function analyzeImageWithOpenAICompatible(settings, imagePart, prompt) {
@@ -804,7 +819,13 @@ async function analyzeImageWithOpenAICompatible(settings, imagePart, prompt) {
     response_format: { type: "json_object" }
   });
 
-  return extractTextFromOpenAICompatible(response);
+  const text = extractTextFromOpenAICompatible(response);
+  if (!text) {
+    const choice = response?.choices?.[0];
+    const reason = choice?.message?.refusal || choice?.finish_reason || "empty response";
+    throw new Error(getSettingsTranslator(settings).t("backgroundNoAnalysisResult", { reason }));
+  }
+  return text;
 }
 
 async function generateImageWithGemini(settings, payload, prompt) {
@@ -943,7 +964,16 @@ function buildOpenAICompatibleUrl(baseUrl, path) {
 
 async function parseApiResponse(response) {
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_error) {
+    // Gateways often answer errors with an HTML page instead of JSON.
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}.`);
+    }
+    throw new Error("API returned a non-JSON response. Check the Base URL.");
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -981,20 +1011,38 @@ function extractTextFromOpenAICompatible(data) {
   return "";
 }
 
-function extractImagesFromOpenAICompatible(data) {
+// Returns the same { mimeType, base64Data } shape as extractImagesFromGemini,
+// which is what the panel and viewer render. URL results are downloaded here
+// because providers usually expire them after a short time.
+async function extractImagesFromOpenAICompatible(data) {
   const items = Array.isArray(data?.data) ? data.data : [];
+  const defaultMimeType = `image/${String(data?.output_format || "png").toLowerCase()}`;
 
-  return items
-    .map((item) => {
+  const images = await Promise.all(
+    items.map(async (item) => {
       if (item?.b64_json) {
-        return `data:image/png;base64,${item.b64_json}`;
+        return { mimeType: defaultMimeType, base64Data: item.b64_json };
       }
       if (item?.url) {
-        return item.url;
+        if (item.url.startsWith("data:")) {
+          const { mimeType, data: base64Data } = parseDataUrlImage(item.url);
+          return { mimeType, base64Data };
+        }
+        const response = await fetch(item.url);
+        if (!response.ok) {
+          throw new Error(`Failed to download generated image (${response.status}).`);
+        }
+        const blob = await response.blob();
+        return {
+          mimeType: blob.type || guessMimeType(item.url),
+          base64Data: arrayBufferToBase64(await blob.arrayBuffer())
+        };
       }
-      return "";
+      return null;
     })
-    .filter(Boolean);
+  );
+
+  return images.filter(Boolean);
 }
 
 function mapAspectRatioToOpenAIImageSize(aspectRatio) {
@@ -1153,6 +1201,23 @@ function buildAnalyzePrompt(payload, { includeChinese = true } = {}) {
   return lines.join("\n");
 }
 
+function hasModelPromptContent(parsed) {
+  if (!isPlainObject(parsed)) return false;
+
+  const candidates = [
+    parsed.structuredPrompt?.enFull,
+    parsed.structuredPrompt?.zhFull,
+    parsed.structuredPrompt?.enShort,
+    parsed.structuredPrompt?.zhShort,
+    pickNestedText(parsed.analysis?.subject, "main"),
+    parsed.drafts?.enFull,
+    parsed.drafts?.zhFull,
+    parsed.enPromptFull,
+    parsed.zhPromptFull
+  ];
+  return candidates.some((value) => typeof value === "string" && value.trim());
+}
+
 function calibratePromptPayload(parsed, { includeChinese = true } = {}) {
   const structuredPrompt = normalizeStructuredPrompt(parsed?.structuredPrompt);
   const promptSections = parseStructuredPromptSections(structuredPrompt.enFull);
@@ -1191,7 +1256,7 @@ function normalizeStructuredAnalysis(input) {
 
   return {
     subject: {
-      main: normalizeTextField(source?.subject?.main || source?.subject),
+      main: normalizeTextField(pickNestedText(source?.subject, "main")),
       attributes: normalizeStringArray(source?.subject?.attributes),
       action: normalizeTextField(source?.subject?.action)
     },
@@ -1204,12 +1269,12 @@ function normalizeStructuredAnalysis(input) {
     camera: {
       focalLength: normalizeTextField(source?.camera?.focalLength),
       aperture: normalizeTextField(source?.camera?.aperture),
-      angle: normalizeTextField(source?.camera?.angle || source?.camera),
+      angle: normalizeTextField(pickNestedText(source?.camera, "angle")),
       shotType: normalizeTextField(source?.camera?.shotType),
       depthOfField: normalizeTextField(source?.camera?.depthOfField)
     },
     lighting: {
-      direction: normalizeTextField(source?.lighting?.direction || source?.lighting),
+      direction: normalizeTextField(pickNestedText(source?.lighting, "direction")),
       quality: normalizeTextField(source?.lighting?.quality),
       effect: normalizeTextField(source?.lighting?.effect),
       timeOfDay: normalizeTextField(source?.lighting?.timeOfDay)
@@ -1220,7 +1285,7 @@ function normalizeStructuredAnalysis(input) {
       opticalProperties: normalizeStringArray(source?.material?.opticalProperties)
     },
     composition: {
-      layout: normalizeTextField(source?.composition?.layout || source?.composition),
+      layout: normalizeTextField(pickNestedText(source?.composition, "layout")),
       subjectPlacement: normalizeTextField(source?.composition?.subjectPlacement),
       foreground: normalizeTextField(source?.composition?.foreground),
       background: normalizeTextField(source?.composition?.background),
@@ -1228,7 +1293,7 @@ function normalizeStructuredAnalysis(input) {
       symmetry: normalizeTextField(source?.composition?.symmetry)
     },
     environment: {
-      sceneType: normalizeTextField(source?.environment?.sceneType || source?.environment),
+      sceneType: normalizeTextField(pickNestedText(source?.environment, "sceneType")),
       backgroundMaterial: normalizeTextField(source?.environment?.backgroundMaterial),
       spatialRelation: normalizeTextField(source?.environment?.spatialRelation)
     },
@@ -1238,6 +1303,13 @@ function normalizeStructuredAnalysis(input) {
       colorGrade: normalizeTextField(source?.rendering?.colorGrade)
     }
   };
+}
+
+// Older responses used a flat string where the schema now has an object.
+// Only fall back to the raw value when it is not an object, so an object with
+// an empty field never stringifies to "[object Object]".
+function pickNestedText(value, key) {
+  return isPlainObject(value) ? value[key] : value;
 }
 
 function fillStructuredDefaults(analysis) {
@@ -1516,7 +1588,7 @@ function createEnglishShortFromFull(fullPrompt, fallback = "") {
   if (!source) return normalizeEnglishPrompt(fallback, "short");
 
   const sentences = source
-    .split(/[.!?]/)
+    .split(SENTENCE_END_PATTERN)
     .map((item) => item.trim())
     .filter(Boolean);
   const compact = sentences.slice(0, 2).join(". ");
@@ -1948,6 +2020,14 @@ function hasEnvironmentSignals(text) {
   return /(environment|background|spatial|space|scene|环境|背景|空间|场景)/i.test(text);
 }
 
+// Sentence punctuation is followed by whitespace or the end of the text, so
+// decimals like f/1.8 and ratios like 16:9 are not treated as boundaries.
+const SENTENCE_END_PATTERN = /[.!?](?=\s|$)/;
+
+function isBetweenDigits(source, offset, length) {
+  return /\d/.test(source[offset - 1] || "") && /\d/.test(source[offset + length] || "");
+}
+
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -2011,13 +2091,15 @@ function normalizeEnglishPrompt(text, detail) {
     .replace(/,\s*\./g, ".")
     .replace(/\.\s*,/g, ".")
     .replace(/\s+([,.;:])/g, "$1")
-    .replace(/([,.;:])(?=\S)/g, "$1 ")
+    .replace(/([,.;:])(?=\S)/g, (match, punct, offset, source) =>
+      isBetweenDigits(source, offset, punct.length) ? punct : `${punct} `
+    )
     .replace(/^[,.;:\s]+|[,;:\s]+$/g, "")
     .trim();
 
   if (detail === "short") {
     normalized = normalized
-      .split(/[.!?]/)
+      .split(SENTENCE_END_PATTERN)
       .map((item) => item.trim())
       .filter(Boolean)
       .slice(0, 2)
@@ -2147,9 +2229,13 @@ function normalizeChinesePunctuation(text) {
     .replace(/《\s*》/g, "")
     .replace(/「\s*」/g, "")
     .replace(/『\s*』/g, "")
-    .replace(/[,.]+/g, "，")
+    .replace(/[,.]+/g, (match, offset, source) =>
+      match === "." && isBetweenDigits(source, offset, 1) ? match : "，"
+    )
     .replace(/[;；]+/g, "；")
-    .replace(/[:：]+/g, "：")
+    .replace(/[:：]+/g, (match, offset, source) =>
+      match === ":" && isBetweenDigits(source, offset, 1) ? match : "："
+    )
     .replace(/[!?！？]+/g, "。")
     .replace(/、{2,}/g, "、")
     .replace(/([，、；：]){2,}/g, "$1")
