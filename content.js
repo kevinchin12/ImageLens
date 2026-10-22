@@ -25,6 +25,8 @@ const state = {
   contextPoint: null,
   regionSelecting: false,
   toastTimer: null,
+  pointer: null,
+  hoverFrame: 0,
   currentJob: null,
   panelData: createEmptyPanelData(),
   actionState: {
@@ -437,10 +439,24 @@ function handleInlinePreviewClick(event) {
   }
 }
 
+// Pointer moves fire far more often than the screen repaints, so the lookup
+// runs at most once per frame with the latest pointer position.
 function handlePointerMove(event) {
+  if (state.regionSelecting) return;
   if (state.panelOpen && panel.contains(event.target)) return;
 
-  const image = event.target instanceof Element ? findEligibleImage(event.target) : null;
+  state.pointer = { x: event.clientX, y: event.clientY, target: event.target };
+  if (!state.hoverFrame) {
+    state.hoverFrame = requestAnimationFrame(updateHoverTarget);
+  }
+}
+
+function updateHoverTarget() {
+  state.hoverFrame = 0;
+  const { x, y, target } = state.pointer || {};
+
+  const image =
+    (target instanceof Element ? findEligibleImage(target) : null) || findEligibleImageAtPoint(x, y);
   if (!image) {
     if (!hoverTrigger.matches(":hover")) hideHoverButton();
     return;
@@ -452,11 +468,28 @@ function handlePointerMove(event) {
 
 function findEligibleImage(startNode) {
   const image = startNode.closest("img");
-  if (!image) return null;
+  return image && isEligibleImage(image) ? image : null;
+}
+
+// Sites like Pinterest and Instagram lay transparent elements over their
+// images, so the pointer is never on the <img> itself. Look through the stack
+// at the pointer and use the first image underneath.
+function findEligibleImageAtPoint(x, y) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  for (const element of document.elementsFromPoint(x, y)) {
+    if (isOwnUiElement(element)) continue;
+    if (element instanceof HTMLImageElement) {
+      return isEligibleImage(element) ? element : null;
+    }
+  }
+  return null;
+}
+
+function isEligibleImage(image) {
   const rect = image.getBoundingClientRect();
   const src = image.currentSrc || image.src;
-  if (!src || rect.width < 96 || rect.height < 96) return null;
-  return image;
+  return Boolean(src) && rect.width >= 96 && rect.height >= 96;
 }
 
 function updateHoverButtonPosition() {
